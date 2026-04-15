@@ -588,7 +588,7 @@ function processData(rows, contractRows, defenseMapInput) {
     if (p.capped) { p.category = 'Max Player'; }
     else if (p.twoWay) { p.category = 'Two-Way Player'; }
     else if (p.floored) { p.category = 'Minimum Contract Player'; }
-    else { p.category = fmtFull$(p.uncappedTV); }
+    else { p.category = fmtFullTV$(p.uncappedTV); }
     p.surplus = p.tradeValue - p.salary;
   }
 
@@ -819,6 +819,8 @@ function rankDelta(cur, prev) {
 
 function fmt$(n) { const a=Math.abs(n); if(a>=1e6)return(n<0?'-':'')+'$'+(a/1e6).toFixed(1)+'M'; if(a>=1e3)return(n<0?'-':'')+'$'+(a/1e3).toFixed(0)+'K'; return '$'+n.toLocaleString(); }
 function fmtFull$(n) { return (n<0?'-$':'$')+Math.abs(n).toLocaleString(); }
+function fmtTV$(n) { return (!n || n < 650000) ? '<$650K' : fmt$(n); }
+function fmtFullTV$(n) { return (!n || n < 650000) ? '<$650K' : fmtFull$(n); }
 function ratCls(r) { return r>=18?'rat-elite':r>=12?'rat-star':r>=6?'rat-solid':r>=2?'rat-avg':'rat-low'; }
 function rankCls(r) { return r<=5?'rank-top5':r<=20?'rank-top20':r<=50?'rank-top50':''; }
 function surpCls(s) { return s>5e5?'surplus-pos':s<-5e5?'surplus-neg':'surplus-neutral'; }
@@ -857,7 +859,7 @@ function renderTable(players) {
       <td class="col-rank ${rankCls(p.rank)}">${p.rank}</td>
       <td class="col-player"><div class="player-name">${p.player}</div><div class="player-team">${p.team}</div></td>
       <td class="col-num" style="color:${p.age !== null && p.age < 25 ? 'var(--accent)' : 'var(--text)'}">${p.age!==null?p.age.toFixed(1):'\u2014'}</td>
-      <td class="col-num col-real-value">${fmtFull$(p.uncappedTV)}</td>
+      <td class="col-num col-real-value">${fmtFullTV$(p.uncappedTV)}</td>
       <td class="col-num">${fmtFull$(p.salary)}</td>
       <td class="col-num" style="font-size:0.78rem;text-align:center">${cat}</td>
       <td class="col-num col-surplus"><div class="surplus-cell"><div class="surplus-bar-track"><div class="surplus-bar-center"></div><div class="surplus-bar ${bc}" style="width:${pct}%"></div></div><span class="${surpCls(p.surplus)}">${p.surplus>=0?'+':''}${fmt$(p.surplus)}</span></div></td>
