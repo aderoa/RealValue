@@ -497,6 +497,19 @@ function processData(rows, contractRows, defenseMapInput) {
     p.rat365adj += p.defenseAdj;
   }
 
+  // Top-20 RAT 365 production bonus: elite current-season performers get a WM nudge
+  const TOP20_TIERS = [{from:1,to:5,bonus:1.5},{from:6,to:10,bonus:1.2},{from:11,to:15,bonus:1.0},{from:16,to:20,bonus:0.8}];
+  const rat365Sorted = [...roster].sort((a,b) => (b.rat365||0) - (a.rat365||0));
+  for (let i = 0; i < Math.min(20, rat365Sorted.length); i++) {
+    const p = rat365Sorted[i];
+    const tier = TOP20_TIERS.find(t => (i+1) >= t.from && (i+1) <= t.to);
+    if (tier) {
+      p.top20Bonus = tier.bonus;
+      p.watermark += tier.bonus;
+      p.rat365adj += tier.bonus;
+    }
+  }
+
   // Real value: 92/8 blend × age multiplier × shooting penalty, then renormalize to pool
   // Soft-capped exponent: compresses elite outliers while preserving mid-tier separation
   function softScore(r) { const s = Math.pow(Math.max(r, 0), EXPONENT); return s / (1.0 + s / KNEE); }
