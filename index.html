@@ -181,6 +181,7 @@ tbody tr { animation:fadeInRow 0.25s ease both; }
         <th style="text-align:right">Age</th>
         <th style="text-align:right">Real Value</th>
         <th style="text-align:right">Salary</th>
+        <th style="text-align:right">Evolution</th>
         <th style="text-align:center">Category</th>
         <th style="text-align:right">Surplus</th>
       </tr>
@@ -728,23 +729,38 @@ function processData(rows, contractRows, defenseMapInput) {
 let appData = null;
 let snapshot = null;
 
-// Auto-evolution: save snapshot to localStorage, compare against previous
-function loadAutoSnapshot() {
+// Server-side snapshot (daily rotation via Worker)
+async function loadServerSnapshot() {
   try {
-    const saved = localStorage.getItem('hm_rv_snapshot');
-    if (saved) {
-      snapshot = JSON.parse(saved);
-      console.log('[Evolution] Loaded previous snapshot:', Object.keys(snapshot).length, 'players');
+    const res = await fetch('/api/rv-snapshot');
+    if (!res.ok) return;
+    const data = await res.json();
+    // Use yesterday's snapshot for comparison (fall back to today if no yesterday)
+    const prev = data.yesterday || null;
+    if (prev) {
+      snapshot = {};
+      for (const [name, val] of Object.entries(prev)) {
+        if (name.startsWith('_')) continue;
+        snapshot[name] = val;
+      }
+      console.log('[Evolution] Using server snapshot from', prev._date, '(', Object.keys(snapshot).length, 'players)');
+    } else {
+      console.log('[Evolution] No prior snapshot yet — will be available tomorrow');
     }
   } catch(e) { console.warn('[Evolution] Load error:', e); }
 }
-function saveAutoSnapshot() {
+
+async function saveServerSnapshot() {
   if (!appData) return;
   try {
     const snap = {};
     appData.players.forEach(p => { snap[p.player] = { rank: p.rank, tv: p.uncappedTV, surplus: p.surplus }; });
-    localStorage.setItem('hm_rv_snapshot', JSON.stringify(snap));
-    console.log('[Evolution] Saved snapshot:', Object.keys(snap).length, 'players');
+    const res = await fetch('/api/rv-snapshot', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(snap)
+    });
+    if (res.ok) { const d = await res.json(); console.log('[Evolution] Server snapshot:', d); }
   } catch(e) { console.warn('[Evolution] Save error:', e); }
 }
 
@@ -788,7 +804,7 @@ async function refreshData() {
     appData = processData(ratingsRows, contractRows, defenseMap);
     buildStats(appData);
     update();
-    saveAutoSnapshot();
+    saveServerSnapshot();
     btn.textContent = '✅ Updated';
     setTimeout(() => { btn.textContent = '↻ Refresh'; }, 1500);
   } catch(err) {
@@ -861,6 +877,7 @@ function renderTable(players) {
       <td class="col-num" style="color:${p.age !== null && p.age < 25 ? 'var(--accent)' : 'var(--text)'}">${p.age!==null?p.age.toFixed(1):'\u2014'}</td>
       <td class="col-num col-real-value">${fmtFullTV$(p.uncappedTV)}</td>
       <td class="col-num">${fmtFull$(p.salary)}</td>
+      <td class="col-num">${s ? deltaHTML(p.uncappedTV, s.tv, false) : '<span class="delta delta-flat">—</span>'}</td>
       <td class="col-num" style="font-size:0.78rem;text-align:center">${cat}</td>
       <td class="col-num col-surplus"><div class="surplus-cell"><div class="surplus-bar-track"><div class="surplus-bar-center"></div><div class="surplus-bar ${bc}" style="width:${pct}%"></div></div><span class="${surpCls(p.surplus)}">${p.surplus>=0?'+':''}${fmt$(p.surplus)}</span></div></td>
     </tr>`;
@@ -915,9 +932,9 @@ async function init() {
 
     buildStats(appData);
     buildTeams(appData);
-    loadAutoSnapshot();
+    await loadServerSnapshot();
     update();
-    saveAutoSnapshot();
+    saveServerSnapshot();
 
     document.getElementById('searchInput').addEventListener('input', update);
     document.getElementById('teamFilter').addEventListener('change', update);
