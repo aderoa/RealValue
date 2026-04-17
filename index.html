@@ -57,8 +57,9 @@ select:focus { border-color:var(--accent); }
 /* — Tables — */
 .table-container { max-width:1400px; margin:1.25rem auto 3rem; padding:0 2rem; overflow-x:auto; }
 table { width:100%; border-collapse:collapse; font-size:0.82rem; }
-thead th { position:sticky; top:0; z-index:10; background:var(--surface2); font-family:'JetBrains Mono','DM Mono',monospace; font-size:0.62rem; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); padding:0.6rem 0.5rem; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; cursor:pointer; user-select:none; }
+thead th { position:sticky; top:0; z-index:10; background:var(--surface2); font-family:'JetBrains Mono','DM Mono',monospace; font-size:0.62rem; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); padding:0.6rem 0.5rem; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; cursor:pointer; user-select:none; transition:color .15s; }
 thead th:hover { color:var(--accent); }
+thead th[data-sort]:active { transform:scale(0.98); }
 tbody tr { border-bottom:1px solid var(--border); transition:background 0.12s; }
 tbody tr:hover { background:rgba(59,130,246,0.03); }
 tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
@@ -176,14 +177,14 @@ tbody tr { animation:fadeInRow 0.25s ease both; }
   <table>
     <thead>
       <tr>
-        <th class="col-rank"># ▼</th>
-        <th>Player</th>
-        <th style="text-align:right">Age</th>
-        <th style="text-align:right">Real Value</th>
-        <th></th>
-        <th style="text-align:right">Salary</th>
+        <th class="col-rank" data-sort="rank" onclick="toggleSort('rank')">#</th>
+        <th data-sort="player" onclick="toggleSort('player')">Player</th>
+        <th style="text-align:right" data-sort="age" onclick="toggleSort('age')">Age</th>
+        <th style="text-align:right" data-sort="uncappedTV" onclick="toggleSort('uncappedTV')">Real Value</th>
+        <th data-sort="evoDelta" onclick="toggleSort('evoDelta')" style="text-align:left;padding-left:0"></th>
+        <th style="text-align:right" data-sort="salary" onclick="toggleSort('salary')">Salary</th>
         <th style="text-align:center">Category</th>
-        <th style="text-align:right">Surplus</th>
+        <th style="text-align:right" data-sort="surplus" onclick="toggleSort('surplus')">Surplus</th>
       </tr>
     </thead>
     <tbody id="tableBody"></tbody>
@@ -728,6 +729,31 @@ function processData(rows, contractRows, defenseMapInput) {
 
 let appData = null;
 let snapshot = null;
+let sortCol = 'uncappedTV';
+let sortDir = 'desc';
+
+function toggleSort(col) {
+  if (sortCol === col) {
+    sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+  } else {
+    sortCol = col;
+    sortDir = (col === 'player') ? 'asc' : 'desc'; // alpha defaults ascending, numbers descending
+  }
+  // Sync dropdown if matching option exists
+  const sel = document.getElementById('sortSelect');
+  const opt = sel.querySelector(`option[value="${col}-${sortDir}"]`);
+  if (opt) sel.value = opt.value;
+  update();
+}
+
+function updateSortHeaders() {
+  document.querySelectorAll('thead th[data-sort]').forEach(th => {
+    const col = th.dataset.sort;
+    const base = th.textContent.replace(/\s*[▲▼]/g, '').trim();
+    th.textContent = col === sortCol ? base + (sortDir === 'desc' ? ' ▼' : ' ▲') : base;
+    th.style.color = col === sortCol ? 'var(--accent)' : '';
+  });
+}
 
 // Server-side snapshot (daily rotation via Worker)
 async function loadServerSnapshot() {
@@ -907,7 +933,11 @@ function update() {
   if (!appData) return;
   const search = document.getElementById('searchInput').value.toLowerCase();
   const team = document.getElementById('teamFilter').value;
-  const [sortKey, sortDir] = document.getElementById('sortSelect').value.split('-');
+  // Compute evoDelta on each player for sorting
+  appData.players.forEach(p => {
+    const s = snapshot ? snapshot[p.player] : null;
+    p.evoDelta = (s && s.tv != null) ? p.uncappedTV - s.tv : 0;
+  });
   let f = appData.players.filter(p => {
     if (team && p.team !== team) return false;
     if (search && !p.player.toLowerCase().includes(search) && !p.team.toLowerCase().includes(search)) return false;
@@ -915,12 +945,16 @@ function update() {
   });
   const dir = sortDir==='desc'?-1:1;
   f.sort((a,b) => {
-    const av = a[sortKey], bv = b[sortKey];
+    if (sortCol === 'player') {
+      return a.player.localeCompare(b.player) * dir;
+    }
+    const av = a[sortCol], bv = b[sortCol];
     if (av === null && bv === null) return 0;
     if (av === null) return 1;
     if (bv === null) return -1;
     return (av - bv) * dir;
   });
+  updateSortHeaders();
   renderTable(f);
 }
 
@@ -956,7 +990,11 @@ async function init() {
 
     document.getElementById('searchInput').addEventListener('input', update);
     document.getElementById('teamFilter').addEventListener('change', update);
-    document.getElementById('sortSelect').addEventListener('change', update);
+    document.getElementById('sortSelect').addEventListener('change', function() {
+      const [col, dir] = this.value.split('-');
+      sortCol = col; sortDir = dir;
+      update();
+    });
     
     document.getElementById('refreshBtn').disabled = false;
     
