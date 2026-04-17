@@ -290,7 +290,7 @@ function parseCSV(text) {
 
 function processData(rows, contractRows, defenseMapInput) {
   const dataRows = rows.slice(1);
-  const roster = [], historical = [];
+  let roster = []; const historical = [];
   let todayStr = null;
   const shootingMap = {};
   const expMap = {};
@@ -346,6 +346,13 @@ function processData(rows, contractRows, defenseMapInput) {
       if (!isNaN(sv) && sv > 0) shootingMap[row[12].trim()] = sv;
     }
   }
+
+  // Deduplicate roster: traded players appear under multiple teams — keep last entry (current team)
+  const rosterDedup = new Map();
+  const rosterRawCount = roster.length;
+  for (const p of roster) rosterDedup.set(p.player, p);
+  roster = [...rosterDedup.values()];
+  if (rosterRawCount !== roster.length) console.log(`[Data] Deduped ${rosterRawCount} rows → ${roster.length} unique players`);
 
   const playerHist = {};
   for (const h of historical) { const k = h.player.toLowerCase(); if (!playerHist[k]) playerHist[k] = []; playerHist[k].push(h); }
@@ -780,7 +787,7 @@ async function saveServerSnapshot() {
   if (!appData) return;
   try {
     const snap = {};
-    appData.players.forEach(p => { snap[p.player] = { rank: p.rank, tv: p.uncappedTV, surplus: p.surplus }; });
+    appData.players.forEach(p => { snap[p.player] = { rank: p.rank, tv: p.uncappedTV, surplus: p.surplus, watermark: p.watermark, rat365: p.rat365 }; });
     const res = await fetch('https://hoopsmatic.com/api/rv-snapshot', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -909,11 +916,11 @@ function renderTable(players) {
     if (p.capped) cat = '<span style="color:var(--accent)">Max Player</span>';
     else if (p.twoWay) cat = '<span style="color:var(--surplus-neg)">Two-Way</span>';
     else if (p.floored && p.uncappedTV < 2000000) cat = '<span style="color:var(--text-muted)">Minimum</span>';
-    // Evolution: TV delta from snapshot (shown inline with Real Value)
+    // Evolution: watermark delta from snapshot (player's own rating change, not redistribution noise)
     let evoDelta = '';
-    if (s && s.tv != null) {
-      const tvDelta = p.uncappedTV - s.tv;
-      if (tvDelta !== 0) evoDelta = `<span style="color:${tvDelta>0?'var(--green)':'var(--red)'}">(${tvDelta>0?'+':''}${fmt$(tvDelta)})</span>`;
+    if (s && s.watermark != null && p.watermark != null) {
+      const wmDelta = p.watermark - s.watermark;
+      if (Math.abs(wmDelta) >= 0.1) evoDelta = `<span style="color:${wmDelta>0?'var(--green)':'var(--red)'}">(${wmDelta>0?'▲':'▼'}${Math.abs(wmDelta).toFixed(1)})</span>`;
     }
     return `<tr style="animation-delay:${Math.min(i*0.015,0.4)}s">
       <td class="col-rank ${rankCls(p.rank)}">${p.rank}</td>
@@ -936,7 +943,7 @@ function update() {
   // Compute evoDelta on each player for sorting
   appData.players.forEach(p => {
     const s = snapshot ? snapshot[p.player] : null;
-    p.evoDelta = (s && s.tv != null) ? p.uncappedTV - s.tv : 0;
+    p.evoDelta = (s && s.watermark != null && p.watermark != null) ? p.watermark - s.watermark : 0;
   });
   let f = appData.players.filter(p => {
     if (team && p.team !== team) return false;
