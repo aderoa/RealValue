@@ -1,1046 +1,971 @@
-// ============================================================
-// HoopsMatic — Cloudflare Worker v5.2 (hoopsmatic.com)
-// Security hardened, Depth Charts, OG tags, health check
-// + RM API endpoints (server-side Sheets proxy)
-// + /roster/:team/:phase deep-link routing
-// ============================================================
-
-const RM_URL = 'https://aderoa.github.io/RosterManager/';
-const RM_HTML_URL = 'https://raw.githubusercontent.com/aderoa/RosterManager/main/index.html';
-const COMPARE_HTML_URL = 'https://raw.githubusercontent.com/jsierrahoopshype/nba-player-data/main/nba-player-comparison-tool.html';
-const SEASON_COMPARE_HTML_URL = 'https://raw.githubusercontent.com/jsierrahoopshype/nba-player-data/main/nba-season-comparison-tool.html';
-const TM_HTML_URL = 'https://raw.githubusercontent.com/jsierrahoopshype/TransactionMaster/main/index.html';
-const CONTRACTS_HTML_URL = 'https://raw.githubusercontent.com/jsierrahoopshype/Contracts/main/index.html';
-const INJURIES_HTML_URL = 'https://raw.githubusercontent.com/aderoa/Injuries/main/index.html';
-const DEPTH_HTML_URL = 'https://raw.githubusercontent.com/aderoa/DepthCharts/main/index.html';
-const DEFENSE_HTML_URL = 'https://raw.githubusercontent.com/aderoa/DefensiveRankings/main/index.html';
-const RV_HTML_URL = 'https://raw.githubusercontent.com/aderoa/RealValue/main/index.html';
-const DRAFT_HTML_URL = 'https://raw.githubusercontent.com/aderoa/DraftPredictor/main/index.html';
-const SSF_HTML_URL = 'https://raw.githubusercontent.com/jsierrahoopshype/salary-season-finder/main/index.html';
-const SSF_BASE = 'https://jsierrahoopshype.github.io/salary-season-finder/';
-const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSg6im6IYB6HXMGzQbmmBnLw9SfQLzxCSo8OfChxlJLhsB6BBCO0wPF_TMch0YgAbtFqYkwDWrsxRe7/pub?gid=0&single=true&output=csv';
-
-// ── Sheets API v4 — key from env secret, fallback for migration ──
-const MAIN_SHEET = '11llk0icQqoi0JwJXat5KO8y2RQeBMN5rS9FhAY56Idc';
-const INJ_SHEET = '14TQPdQ9mDhHMMMQa5vcs0coL98ZloHORtYElDikKoWY';
-const DEF_SHEET = '1JH2FUBIyQ1zEHzZBxgP8vHBZ7d8EtP5-fSVG3zMgCgg';
-const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
-
-function getApiKey(env) {
-  return (env && env.SHEETS_API_KEY) || 'AIzaSyB9g7c6llswswuZQ2I5y2MwGk6BzYEtHsY';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Real Value — HoopsMatic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* === HOOPSMATIC DESIGN SYSTEM v1.0 === */
+:root {
+  --bg: #f8f9fa; --surface: #fff; --surface2: #f3f4f6;
+  --border: #e2e5e9; --text: #1a1a2e; --text2: #5a6070; --text-muted: #8892a6;
+  --accent: #3b82f6; --accent-dim: rgba(59,130,246,0.07);
+  --accent-gold: #f0b637; --accent-cyan: #0ea5e9;
+  --green: #16a34a; --red: #dc2626; --orange: #f59e0b;
+  --surplus-pos: #10b981; --surplus-neg: #ef4444; --surplus-neutral: #6b7280;
 }
-function sheetsURL(sheetId, tab, env) {
-  return `${SHEETS_API}/${sheetId}/values/${encodeURIComponent(tab)}?key=${getApiKey(env)}`;
-}
-function sheetsJsonToCsv(json) {
-  const vals = json.values || [];
-  return vals.map(row =>
-    row.map(c => c != null && (String(c).includes(',') || String(c).includes('"') || String(c).includes('\n'))
-      ? '"' + String(c).replace(/"/g, '""') + '"' : (c || '')
-    ).join(',')
-  ).join('\n');
-}
-async function fetchSheetAsCsv(sheetId, tab, env) {
-  const resp = await fetch(sheetsURL(sheetId, tab, env), { headers: { 'User-Agent': 'Mozilla/5.0' } });
-  if (!resp.ok) return null;
-  return sheetsJsonToCsv(await resp.json());
-}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; line-height:1.5; }
+::-webkit-scrollbar{height:5px;width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:3px}
 
-const ALLOWED_ORIGINS = ['https://jsierrahoopshype.github.io','https://aderoa.github.io','https://hoopsmatic.com','http://localhost','http://127.0.0.1'];
 
-// ── Security helpers ──
-function analyticsPage() {
-  const sc = '<' + '/script>';
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>HoopsMatic Analytics</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<style>:root{--bg:#f8f9fa;--surface:#fff;--border:#e2e5e9;--text:#1a1a2e;--text2:#5a6070;--muted:#8892a6;--accent:#3b82f6;--accent-dim:rgba(59,130,246,.07);--green:#16a34a;--red:#dc2626;--orange:#f59e0b}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);padding:2rem;max-width:1400px;margin:0 auto}h1{font-size:1.6rem;font-weight:800;letter-spacing:-.02em;margin-bottom:.25rem}.subtitle{font-size:.8rem;color:var(--muted);margin-bottom:1.5rem}.updated{font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--muted);margin-bottom:1.5rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1.25rem;margin-bottom:2rem}.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}.card-hdr{padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}.card-hdr h2{font-size:.85rem;font-weight:700;display:flex;align-items:center;gap:.4rem}.card-hdr .badge{font-family:'JetBrains Mono',monospace;font-size:.6rem;font-weight:600;padding:.15rem .5rem;border-radius:10px;background:var(--accent-dim);color:var(--accent)}.card-body{padding:0}table{width:100%;border-collapse:collapse;font-size:.78rem}thead th{background:#f3f4f6;color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:.6rem;font-weight:500;text-transform:uppercase;letter-spacing:.06em;padding:.5rem .75rem;text-align:left;border-bottom:1px solid var(--border);position:sticky;top:0}thead th:last-child{text-align:right}tbody td{padding:.45rem .75rem;border-bottom:1px solid #f3f4f6;vertical-align:middle}tbody td:last-child{text-align:right;font-family:'JetBrains Mono',monospace;font-weight:600;font-size:.75rem}tbody tr:hover{background:rgba(59,130,246,.02)}.rank{font-size:.6rem;color:var(--muted);font-weight:600;min-width:18px;display:inline-block}.empty{padding:2rem;text-align:center;color:var(--muted);font-size:.8rem}.stat-row{display:flex;gap:1rem;margin-bottom:1.5rem;flex-wrap:wrap}.stat-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.75rem 1rem;flex:1;min-width:120px}.stat-box .val{font-size:1.4rem;font-weight:800;color:var(--accent);font-family:'JetBrains Mono',monospace}.stat-box .label{font-size:.6rem;color:var(--muted);margin-top:.15rem;text-transform:uppercase;letter-spacing:.04em}.tab-bar{display:flex;gap:.4rem;margin-bottom:1.5rem}.tab-btn{font-family:inherit;font-size:.78rem;font-weight:600;padding:.5rem 1rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text2);cursor:pointer;transition:all .15s}.tab-btn:hover{border-color:var(--accent);color:var(--accent)}.tab-btn.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}.hidden{display:none!important}.recent-list{max-height:400px;overflow-y:auto}.recent-item{padding:.4rem .75rem;border-bottom:1px solid #f3f4f6;font-size:.75rem;display:flex;align-items:center;gap:.5rem}.recent-item:hover{background:rgba(59,130,246,.02)}.recent-item .time{font-family:'JetBrains Mono',monospace;font-size:.6rem;color:var(--muted);min-width:70px}.recent-item .action{font-weight:600;min-width:60px}.recent-item .detail{color:var(--text2)}.act-draft{color:#8b5cf6}.act-sign{color:var(--green)}.act-waive{color:var(--red)}.act-option{color:var(--orange)}.act-trade{color:var(--accent)}.act-compare{color:#8b5cf6}.act-sim{color:var(--muted)}@media(max-width:600px){body{padding:1rem}.grid{grid-template-columns:1fr}.stat-row{gap:.5rem}.stat-box{min-width:80px;padding:.5rem .75rem}.stat-box .val{font-size:1.1rem}}</style></head>
+/* — Header — */
+.header { padding:1.5rem 2rem 0.75rem; }
+.header-inner { max-width:1400px; margin:0 auto; display:flex; align-items:baseline; gap:0.75rem; flex-wrap:wrap; }
+.header h1, .header-brand h1 { font-weight:800; font-size:1.5rem; letter-spacing:-0.02em; color:var(--text); }
+.header .tag { font-family:'JetBrains Mono','DM Mono',monospace; font-size:0.6rem; color:var(--accent); background:var(--accent-dim); padding:0.2em 0.6em; border-radius:4px; letter-spacing:0.04em; }
+.header-subtitle { color:var(--text2); font-size:0.85rem; }
+
+
+/* — Stat Cards — */
+.stats-bar { max-width:1400px; margin:1rem auto 0; padding:0 2rem; display:grid; grid-template-columns:repeat(4,1fr); gap:0.75rem; }
+.stat-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:1rem 1.15rem; }
+.stat-card .label { font-family:'JetBrains Mono','DM Mono',monospace; font-size:0.6rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:0.2rem; }
+.stat-card .value { font-weight:700; font-size:1.35rem; color:var(--text); }
+.stat-card .value .unit { font-size:0.8rem; font-weight:400; color:var(--text2); }
+
+/* — Controls — */
+.controls { max-width:1400px; margin:1.25rem auto 0; padding:0 2rem; display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center; }
+.search-box { flex:1; min-width:200px; position:relative; }
+.search-box input { width:100%; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.85rem 0.55rem 2.3rem; color:var(--text); font-family:inherit; font-size:0.85rem; outline:none; transition:border-color 0.2s; }
+.search-box input:focus { border-color:var(--accent); }
+.search-box input::placeholder { color:var(--text-muted); }
+.search-box .icon { position:absolute; left:0.8rem; top:50%; transform:translateY(-50%); color:var(--text-muted); font-size:0.85rem; }
+.filter-group { display:flex; gap:0.5rem; align-items:center; }
+.filter-group label { font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; font-weight:600; }
+select { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.85rem; color:var(--text); font-family:inherit; font-size:0.85rem; outline:none; cursor:pointer; }
+select:focus { border-color:var(--accent); }
+
+/* — Buttons — */
+.ctrl-btn { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:0.5rem 1rem; color:var(--text); font-family:inherit; font-size:0.82rem; font-weight:500; cursor:pointer; transition:border-color 0.15s, background 0.15s; white-space:nowrap; }
+.ctrl-btn:hover:not(:disabled) { border-color:var(--accent); background:var(--accent-dim); }
+.ctrl-btn:disabled { opacity:0.4; cursor:default; }
+.ctrl-btn.active { border-color:var(--accent); background:var(--accent-dim); color:var(--accent); font-weight:600; }
+
+/* — Tables — */
+.table-container { max-width:1400px; margin:1.25rem auto 3rem; padding:0 2rem; overflow-x:auto; }
+table { width:100%; border-collapse:collapse; font-size:0.82rem; }
+thead th { position:sticky; top:0; z-index:10; background:var(--surface2); font-family:'JetBrains Mono','DM Mono',monospace; font-size:0.62rem; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); padding:0.6rem 0.5rem; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; cursor:pointer; user-select:none; }
+thead th:hover { color:var(--accent); }
+tbody tr { border-bottom:1px solid var(--border); transition:background 0.12s; }
+tbody tr:hover { background:rgba(59,130,246,0.03); }
+tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
+
+/* — Loading & Errors — */
+.loading-overlay, .loading-state { text-align:center; padding:4rem 2rem; color:var(--text2); }
+.loading-overlay .spinner, .loading-spinner { display:inline-block; width:36px; height:36px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:hmSpin 0.8s linear infinite; margin:0 auto 1rem; }
+@keyframes hmSpin { to { transform:rotate(360deg); } }
+.loading-overlay p { color:var(--text2); font-size:0.9rem; }
+.error-msg { color:var(--red); max-width:600px; margin:0 auto; text-align:center; }
+
+/* — Footer — */
+.footer { max-width:1400px; margin:0 auto; padding:1.5rem 2rem 2.5rem; text-align:center; font-size:0.75rem; color:var(--text-muted); border-top:1px solid var(--border); }
+.footer a, footer a { color:var(--accent); text-decoration:none; }
+
+/* — Responsive — */
+@media(max-width:900px) { .stats-bar{grid-template-columns:repeat(2,1fr);} .controls{flex-direction:column;} .search-box{min-width:100%;} }
+@media(max-width:600px) { .stats-bar{grid-template-columns:1fr 1fr;gap:0.5rem;} .stat-card{padding:0.75rem;} .stat-card .value{font-size:1.1rem;} .header{padding:1.25rem 1rem 1rem;} .header h1,.header-brand h1{font-size:1.25rem;} .table-container{padding:0 0.5rem;} td,th{padding:0.4rem 0.35rem;} }
+
+
+/* — Real Value specific — */
+.col-rank { width:55px; text-align:center; font-weight:700; font-size:0.95rem; }
+.rank-top5 { color:var(--accent-gold); }
+.rank-top20 { color:var(--accent); }
+.rank-top50 { color:var(--accent-cyan); }
+.col-player { min-width:200px; }
+.player-name { font-weight:600; font-size:0.88rem; }
+.player-team { font-size:0.72rem; color:var(--text2); margin-top:0.05rem; }
+.col-num { text-align:right; font-family:'JetBrains Mono',monospace; font-size:0.82rem; }
+.col-rat { font-weight:600; }
+.rat-elite { color:#b45309; } .rat-star { color:var(--accent); } .rat-solid { color:var(--accent-cyan); } .rat-avg { color:var(--text); } .rat-low { color:var(--text-muted); }
+.col-real-value { font-weight:700; font-size:0.85rem; }
+.surplus-pos { color:var(--surplus-pos); } .surplus-neg { color:var(--surplus-neg); } .surplus-neutral { color:var(--surplus-neutral); }
+.surplus-cell { display:flex; align-items:center; justify-content:flex-end; gap:0.6rem; }
+.surplus-bar-track { width:80px; height:6px; background:rgba(0,0,0,0.04); border-radius:3px; position:relative; overflow:hidden; }
+.surplus-bar { position:absolute; top:0; height:100%; border-radius:3px; }
+.surplus-bar.positive { left:50%; background:var(--surplus-pos); }
+.surplus-bar.negative { right:50%; background:var(--surplus-neg); }
+.surplus-bar-center { position:absolute; left:50%; top:-1px; bottom:-1px; width:1px; background:rgba(0,0,0,0.1); }
+.wm-detail { position:relative; cursor:help; }
+.wm-detail .wm-tooltip { display:none; position:absolute; right:0; top:100%; margin-top:4px; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:0.6rem 0.85rem; z-index:20; white-space:nowrap; font-size:0.72rem; color:var(--text2); line-height:1.7; box-shadow:0 4px 12px rgba(0,0,0,0.08); }
+.wm-detail:hover .wm-tooltip { display:block; }
+.wm-tooltip .tt-label { color:var(--text-muted); }
+.wm-tooltip .tt-val { color:var(--text); font-weight:500; }
+.methodology { max-width:1400px; margin:0 auto 3rem; padding:0 2rem; }
+.method-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:1.75rem 2rem; }
+.method-card h3 { font-size:1rem; font-weight:700; color:var(--text2); margin-bottom:0.75rem; }
+.method-card p { color:var(--text2); font-size:0.85rem; line-height:1.65; max-width:960px; }
+.method-card p + p { margin-top:0.6rem; }
+.method-card code { font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:var(--accent); background:var(--accent-dim); padding:0.15em 0.4em; border-radius:3px; }
+.formula-block { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:1rem 1.25rem; margin-top:1rem; font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:var(--accent); line-height:1.8; }
+.formula-block .step-label { color:var(--text-muted); font-size:0.68rem; text-transform:uppercase; letter-spacing:0.08em; }
+tbody tr { animation:fadeInRow 0.25s ease both; }
+@keyframes fadeInRow { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+.snap-banner { max-width:1400px; margin:0.75rem auto 0; padding:0 2rem; }
+.snap-banner-inner { background:var(--accent-dim); border:1px solid rgba(59,130,246,0.15); border-radius:8px; padding:0.5rem 1rem; font-size:0.8rem; color:var(--accent); display:flex; align-items:center; gap:0.5rem; }
+.delta { font-size:0.68rem; font-family:'JetBrains Mono',monospace; margin-left:4px; }
+.delta-up { color:var(--surplus-pos); } .delta-down { color:var(--surplus-neg); } .delta-flat { color:var(--text-muted); }
+@media(max-width:600px) { .surplus-bar-track{display:none;} }
+
+</style>
+</head>
 <body>
-<h1>\u{1f4ca} HoopsMatic Analytics</h1>
-<div class="subtitle">Anonymous aggregate user activity across all HoopsMatic tools</div>
-<div class="updated" id="updated"></div>
-<div class="stat-row" id="topStats"></div>
-<div class="tab-bar"><button class="tab-btn active" data-tab="rm">Roster Manager</button><button class="tab-btn" data-tab="compare">Comparisons</button><button class="tab-btn" data-tab="tm">Trade Machine</button><button class="tab-btn" data-tab="recent">Recent Activity</button></div>
-<div id="rm-tab"></div><div id="compare-tab" class="hidden"></div><div id="tm-tab" class="hidden"></div><div id="recent-tab" class="hidden"></div>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="header-brand">
+      <h1>🏀 Real Value</h1>
+    </div>
+  </div>
+</div>
+
+<div class="stats-bar" id="statsBar">
+  <div class="stat-card"><div class="label">Loading...</div><div class="value">—</div></div>
+  <div class="stat-card"><div class="label">Loading...</div><div class="value">—</div></div>
+  <div class="stat-card"><div class="label">Loading...</div><div class="value">—</div></div>
+  <div class="stat-card"><div class="label">Loading...</div><div class="value">—</div></div>
+</div>
+
+<div class="controls">
+  <div class="search-box">
+    <span class="icon">🔍</span>
+    <input type="text" id="searchInput" placeholder="Search player or team..." disabled>
+  </div>
+  <div class="filter-group">
+    <label>Team</label>
+    <select id="teamFilter" disabled><option value="">All Teams</option></select>
+  </div>
+  <div class="filter-group">
+    <label>Sort</label>
+    <select id="sortSelect" disabled>
+      <option value="uncappedTV-desc">Real Value ↓</option>
+      <option value="uncappedTV-asc">Real Value ↑</option>
+      <option value="surplus-desc">Surplus ↓</option>
+      <option value="surplus-asc">Surplus ↑</option>
+      <option value="salary-desc">Salary ↓</option>
+      <option value="salary-asc">Salary ↑</option>
+      <option value="age-asc">Age ↑ (youngest)</option>
+      <option value="age-desc">Age ↓ (oldest)</option>
+    </select>
+  </div>
+  <div class="filter-group" style="margin-left:auto;">
+    <button id="refreshBtn" class="ctrl-btn" disabled>↻ Refresh</button>
+  </div>
+</div>
+
+<div id="loadingArea">
+  <div class="loading-overlay">
+    <div class="spinner"></div>
+    <p>Loading...</p>
+  </div>
+</div>
+
+<div class="table-container" style="display:none" id="tableContainer">
+  <table>
+    <thead>
+      <tr>
+        <th class="col-rank"># ▼</th>
+        <th>Player</th>
+        <th style="text-align:right">Age</th>
+        <th style="text-align:right">Real Value</th>
+        <th style="text-align:right">Salary</th>
+        <th style="text-align:center">Category</th>
+        <th style="text-align:right">Surplus</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+</div>
+
+<div class="footer">HoopsMatic — Real Value Rankings</div>
+
 <script>
-var fmtDate=function(ts){try{return new Date(ts).toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true})}catch(e){return ts}};
-var sortDesc=function(o){return Object.entries(o).sort(function(a,b){return b[1]-a[1]})};
-function lb(data,label,cl){var rows=sortDesc(data);if(!rows.length)return '<div class="empty">No data yet</div>';var h='<table><thead><tr><th>#</th><th>'+label+'</th><th>'+(cl||'Count')+'</th></tr></thead><tbody>';rows.forEach(function(r,i){h+='<tr><td><span class="rank">'+(i+1)+'</span></td><td>'+r[0]+'</td><td>'+r[1]+'</td></tr>'});return h+'</tbody></table>'}
-function card(title,badge,body){return '<div class="card"><div class="card-hdr"><h2>'+title+'</h2><div class="badge">'+badge+'</div></div><div class="card-body">'+body+'</div></div>'}
-function renderAll(d){
-  var rm=d.rm||{},tm=d.tm||{},c=d.compare||{};
-  document.getElementById('updated').textContent=d._updated?'Last updated: '+fmtDate(d._updated)+' ET':'';
-  var sigs=0;Object.values(rm.signed||{}).forEach(function(v){sigs+=v});
-  var drafts=0;Object.values(rm.drafted||{}).forEach(function(v){drafts+=v});
-  document.getElementById('topStats').innerHTML=[{v:rm.totalSims||0,l:'RM Simulations'},{v:sigs,l:'FA Signings'},{v:drafts,l:'Draft Picks'},{v:c.total||0,l:'Comparisons'},{v:tm.trades||0,l:'Trades'}].map(function(s){return '<div class="stat-box"><div class="val">'+s.v+'</div><div class="label">'+s.l+'</div></div>'}).join('');
-  var h='<div class="grid">';
-  h+=card('Most Drafted Prospects',Object.keys(rm.drafted||{}).length+' players',lb(rm.drafted||{},'Prospect','Times Drafted'));
-  h+=card('Most Signed FAs',Object.keys(rm.signed||{}).length+' players',lb(rm.signed||{},'Player','Times Signed'));
-  h+=card('Most Waived Players',Object.keys(rm.waived||{}).length+' players',lb(rm.waived||{},'Player','Times Waived'));
-  h+=card('Options Picked Up',Object.keys(rm.optionPickup||{}).length+' players',lb(rm.optionPickup||{},'Player','Pickups'));
-  h+=card('Options Declined',Object.keys(rm.optionDecline||{}).length+' players',lb(rm.optionDecline||{},'Player','Declines'));
-  h+=card('Drafts by Team',Object.keys(rm.draftedByTeam||{}).length+' teams',lb(rm.draftedByTeam||{},'Team','Picks'));
-  h+=card('Signings by Team',Object.keys(rm.signedByTeam||{}).length+' teams',lb(rm.signedByTeam||{},'Team','Signings'));
-  h+='</div>';document.getElementById('rm-tab').innerHTML=h;
-  var ch='<div class="grid">';
-  ch+=card('Most Compared Pairs',Object.keys(c.pairs||{}).length+' pairs',lb(c.pairs||{},'Matchup','Times'));
-  ch+=card('Most Compared Players',Object.keys(c.players||{}).length+' players',lb(c.players||{},'Player','Appearances'));
-  ch+='</div>';
-  if((c.recent||[]).length){ch+='<div class="card" style="margin-top:1rem"><div class="card-hdr"><h2>Recent Comparisons</h2><div class="badge">last '+Math.min(c.recent.length,50)+'</div></div><div class="card-body"><div class="recent-list">';(c.recent||[]).slice(0,50).forEach(function(r){ch+='<div class="recent-item"><span class="time">'+fmtDate(r.ts)+'</span><span class="detail">'+r.player1+' <strong>vs</strong> '+r.player2+'</span></div>'});ch+='</div></div></div>'}
-  document.getElementById('compare-tab').innerHTML=ch;
-  var th='<div class="grid">';
-  th+=card('Most Traded Players',Object.keys(tm.players||{}).length+' players',lb(tm.players||{},'Player','Times Traded'));
-  th+=card('Most Active Teams',Object.keys(tm.teams||{}).length+' teams',lb(tm.teams||{},'Team','Trades'));
-  th+='</div>';
-  if((tm.recent||[]).length){th+='<div class="card" style="margin-top:1rem"><div class="card-hdr"><h2>Recent Trades</h2><div class="badge">last '+Math.min(tm.recent.length,50)+'</div></div><div class="card-body"><div class="recent-list">';(tm.recent||[]).slice(0,50).forEach(function(r){th+='<div class="recent-item"><span class="time">'+fmtDate(r.ts)+'</span><span class="action act-trade">Trade</span><span class="detail">'+(r.teams||[]).join(' \u2194 ')+': '+(r.players||[]).join(', ')+'</span></div>'});th+='</div></div></div>'}
-  document.getElementById('tm-tab').innerHTML=th;
-  var all=[];(rm.recent||[]).forEach(function(r){all.push(Object.assign({},r,{tool:'rm'}))});(tm.recent||[]).forEach(function(r){all.push(Object.assign({},r,{tool:'tm'}))});(c.recent||[]).forEach(function(r){all.push(Object.assign({},r,{tool:'compare',action:'compare'}))});all.sort(function(a,b){return new Date(b.ts)-new Date(a.ts)});
-  var rh='<div class="card"><div class="card-hdr"><h2>All Recent Activity</h2><div class="badge">'+all.length+' events</div></div><div class="card-body"><div class="recent-list" style="max-height:600px">';
-  all.slice(0,100).forEach(function(r){var cls=r.action==='draft'?'act-draft':r.action==='sign'?'act-sign':r.action==='waive'?'act-waive':(r.action||'').indexOf('option')===0?'act-option':r.action==='trade'?'act-trade':r.action==='compare'?'act-compare':'act-sim';var label=r.action||'',detail='';if(r.action==='compare'){label='Compare';detail=r.player1+' vs '+r.player2}else if(r.action==='trade'){detail=(r.teams||[]).join(' \u2194 ')+': '+(r.players||[]).join(', ')}else if(r.action==='sim_start'){label='Sim';detail=r.team||''}else{label=(r.action||'').replace('_',' ');detail=[r.player,r.team].filter(Boolean).join(' \xb7 ');if(r.extra&&r.extra.salary)detail+=' \xb7 $'+(r.extra.salary/1e6).toFixed(1)+'M';if(r.extra&&r.extra.pick)detail+=' \xb7 Pick #'+r.extra.pick}rh+='<div class="recent-item"><span class="time">'+fmtDate(r.ts)+'</span><span class="action '+cls+'">'+label+'</span><span class="detail">'+detail+'</span></div>'});
-  rh+='</div></div></div>';document.getElementById('recent-tab').innerHTML=rh;
-}
-document.querySelectorAll('.tab-btn').forEach(function(btn){btn.addEventListener('click',function(){document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active')});btn.classList.add('active');['rm','compare','tm','recent'].forEach(function(t){document.getElementById(t+'-tab').classList.add('hidden')});document.getElementById(btn.dataset.tab+'-tab').classList.remove('hidden')})});
-fetch('/api/tracker').then(function(r){return r.json()}).then(renderAll).catch(function(){document.getElementById('rm-tab').innerHTML='<div class="empty">Failed to load</div>'});
-`+sc+`</body></html>`;
-}
+// Data proxied through Worker — no Sheet IDs or API keys in client code
+const PROXY_BASE = 'https://hoopsmatic.com';
+const RATINGS_URL = PROXY_BASE + '/api/rm-tv';
+const CONTRACT_URL = PROXY_BASE + '/api/rm-contracts';
+const DEFENSE_URL = PROXY_BASE + '/api/defense-cache'; // SC/MPG cached by defense page
 
-function safeError(msg, status = 500, extra = {}) {
-  return new Response(JSON.stringify({ error: msg }), { status, headers: { 'Content-Type': 'application/json', ...extra } });
+// CSV parser for proxy endpoints
+function parseCSV(text) {
+  const rows = []; let row = []; let cell = ''; let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"' && text[i+1] === '"') { cell += '"'; i++; }
+      else if (c === '"') inQuotes = false;
+      else cell += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') { row.push(cell); cell = ''; }
+      else if (c === '\n' || (c === '\r' && text[i+1] === '\n')) {
+        row.push(cell); cell = ''; rows.push(row); row = [];
+        if (c === '\r') i++;
+      } else cell += c;
+    }
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
 }
-function getAllowedOrigin(req) {
-  const o = req.headers.get('Origin') || '', r = req.headers.get('Referer') || '';
-  return ALLOWED_ORIGINS.find(a => o.startsWith(a)) || (r.startsWith('https://hoopsmatic.com') ? 'https://hoopsmatic.com' : null);
-}
+const EXPONENT = 3.2;
+const KNEE = 14000; // Soft-cap: score = r^EXP / (1 + r^EXP / KNEE)
+const WM_WEIGHT = 0.92;
+const RAT_WEIGHT = 0.08;
+const AGE_MAX_BONUS = 0.85;
+const OLD_THRESHOLD = 35;
+const OLD_PENALTY_PER_YEAR = 0.03;
+const OLD_FLOOR = 0.50;
+const GAMES_BETA = 0.8;
+const GAMES_MAX_MULT = 2.5;
+const GAMES_MIN_PCT = 0.25;
+const GP_AGE_THRESHOLD = 28; // Age at which GP correction starts fading
+const GP_AGE_DECAY = 0.12; // Exponential decay rate per year over threshold
 
-const HTML_HEADERS = {
-  'Content-Type': 'text/html;charset=UTF-8',
-  'Cache-Control': 'no-cache, no-transform',
-  'Access-Control-Allow-Origin': '*',
-  'X-Content-Type-Options': 'nosniff',
-  'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Content-Security-Policy': "default-src 'self' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src * data:; connect-src 'self' https://sheets.googleapis.com https://*.googleusercontent.com https://raw.githubusercontent.com https://cdn.nba.com https://hoopsmatic.com https://docs.google.com https://flagcdn.com https://aderoa.github.io https://api.github.com https://hoopshype-rumors-api.thejorgesierra.workers.dev;",
-  'X-HoopsMatic-Worker': 'v5.2',
+// Potential bonus for young players based on draft position and age
+const POTENTIAL_MAX = 25000000; // $25M maximum potential bonus
+const MIN_ROOKIE_AGE = 18 + 300/365; // 18 years 300 days (youngest realistic debut age)
+const MAX_POTENTIAL_AGE = 25; // No potential bonus after 25
+const DRAFT_DECAY = 0.05; // Exponential decay rate for draft position
+const AGE_DECAY = 0.5; // Exponential decay rate for age
+
+// NBA 2025-26 salary floor (minimums) and ceiling (max) by experience
+const SAL_CAP = 154647000;
+const MIN_SAL = {0:1272870,1:2048494,2:2296274,3:2378870,4:2461463,5:2667947,6:2874436,7:3080921,8:3287409,9:3303774};
+const MIN_SAL_10 = 3634153;
+const MAX_SAL = {0:Math.round(SAL_CAP*0.25),7:Math.round(SAL_CAP*0.30),10:Math.round(SAL_CAP*0.35)};
+const TWO_WAY_SAL = 636435;
+function getMinSal(exp) { if (exp <= 3) return TWO_WAY_SAL; return exp >= 10 ? MIN_SAL_10 : (MIN_SAL[exp] || MIN_SAL[0]); }
+function getMaxSal(exp) { if (exp >= 10) return MAX_SAL[10]; if (exp >= 7) return MAX_SAL[7]; return MAX_SAL[0]; }
+
+// Projected salary caps for Trade Value computation
+const CAP_PROJ = {
+  2026: 154647000,  // 2025-26 (current)
+  2027: 166000000,  // 2026-27
+  2028: 174300000,  // 2027-28
+  2029: 183015000,  // 2028-29
+  2030: 192166000,  // 2029-30
+  2031: 201774000,  // 2030-31
+  2032: 211863000,  // 2031-32
+  2033: 222456000,  // 2032-33
+  2034: 233579000,  // 2033-34
+  2035: 245258000,  // 2034-35
 };
 
-// ── OG meta tags ──
-const OG_META = {
-  trade:     { title: 'HoopsMatic Trade Machine',      desc: 'NBA trade simulator with real salary cap rules, exceptions, and CBA compliance.' },
-  roster:    { title: 'HoopsMatic Roster Manager',     desc: 'NBA offseason simulator — manage your team through the draft, free agency, and trades.' },
-  compare:   { title: 'HoopsMatic Compare Players',    desc: 'Compare any two NBA players across 140+ categories including awards, stats, salaries, and more.' },
-  seasons:   { title: 'HoopsMatic Compare Seasons',    desc: 'Compare any two NBA player seasons side-by-side with stats, advanced metrics, and more.' },
-  salary:    { title: 'HoopsMatic Salary Finder',      desc: 'Search and compare NBA player salaries across seasons.' },
-  contracts: { title: 'HoopsMatic Contracts',           desc: 'Complete NBA contract database with salary breakdowns, options, and cap holds.' },
-  defense:   { title: 'HoopsMatic Defensive Rankings',  desc: 'Archetype-weighted NBA defensive player rankings with multi-period analysis.' },
-  injuries:  { title: 'HoopsMatic Injury Report',       desc: 'Real-time NBA injury report with salary impact analysis.' },
-  draft:     { title: 'HoopsMatic Draft Predictor',     desc: 'NBA mock draft with aggregate consensus rankings.' },
-  depth:     { title: 'HoopsMatic Depth Charts',        desc: 'Interactive NBA team depth charts with injury integration.' },
-};
-function injectOG(html, key) {
-  const og = OG_META[key]; if (!og) return html;
-  return html.replace('</head>', `<meta property="og:title" content="${og.title}"><meta property="og:description" content="${og.desc}"><meta property="og:type" content="website"><meta property="og:site_name" content="HoopsMatic"><meta name="twitter:card" content="summary"><meta name="twitter:title" content="${og.title}"><meta name="twitter:description" content="${og.desc}"><meta name="description" content="${og.desc}">\n</head>`);
+function parseCSV(text) {
+  const rows = []; let current = '', inQuotes = false, row = [];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i+1] === '"') { current += '"'; i++; }
+      else if (ch === '"') inQuotes = false;
+      else current += ch;
+    } else {
+      if (ch === '"') inQuotes = true;
+      else if (ch === ',') { row.push(current.trim()); current = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i+1] === '\n') i++;
+        row.push(current.trim());
+        if (row.length > 1 || row[0] !== '') rows.push(row);
+        row = []; current = '';
+      } else current += ch;
+    }
+  }
+  if (current || row.length > 0) { row.push(current.trim()); if (row.length > 1 || row[0] !== '') rows.push(row); }
+  return rows;
 }
 
-// ── Nav bar ──
-function navBar(activePage) {
-  const BASE = 'https://hoopsmatic.com';
-  const items = [
-    { id: 'trade', label: 'Trade Machine', href: BASE + '/' },
-    { id: 'roster', label: 'Roster Manager', href: BASE + '/roster' },
-    { id: 'salary', label: 'Salary Finder', href: BASE + '/salary-season-finder' },
-    { id: 'contracts', label: 'Contracts', href: BASE + '/contracts' },
-    { id: 'compare', label: 'Compare Players', href: BASE + '/compare' },
-    { id: 'seasons', label: 'Compare Seasons', href: BASE + '/compare-seasons' },
-    { id: 'depth', label: 'Depth Charts', href: BASE + '/depth-charts' },
-    { id: 'defense', label: 'Defensive Rankings', href: BASE + '/defense' },
-    { id: 'realvalue', label: 'Real Value', href: BASE + '/real-value' },
-    { id: 'injuries', label: 'Injuries', href: BASE + '/injuries' },
-    { id: 'draft', label: 'Draft Predictor', href: BASE + '/draft' },
-  ];
-  const links = items.map(it => `<a href="${it.href}" class="hm-nav-link${it.id===activePage?' hm-nav-active':''}">${it.label}</a>`).join('');
-  const logo = `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;margin-right:6px;flex-shrink:0"><circle cx="10" cy="10" r="10" fill="#E8531A"/><path d="M10 0C10 0 10 20 10 20" stroke="#7A2800" stroke-width="1.2"/><path d="M0 10C0 10 20 10 20 10" stroke="#7A2800" stroke-width="1.2"/><path d="M2.9 3.5C2.9 3.5 10 9.5 10 10C10 10.5 17.1 16.5 17.1 16.5" stroke="#7A2800" stroke-width="1.2"/><path d="M17.1 3.5C17.1 3.5 10 9.5 10 10C10 10.5 2.9 16.5 2.9 16.5" stroke="#7A2800" stroke-width="1.2"/><circle cx="10" cy="10" r="10" fill="none" stroke="#C44010" stroke-width="0.5"/></svg>`;
-  return `<style>
-#hm-nav{background:#fff!important;border-bottom:1px solid #e2e5e9!important;padding:0 1.25rem!important;display:flex!important;align-items:center!important;gap:0!important;font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif!important;position:sticky!important;top:0!important;z-index:9999!important;min-width:fit-content!important;height:auto!important;margin:0!important;overflow-x:auto!important;}
-#hm-nav .hm-nav-brand{font-weight:800!important;font-size:.95rem!important;color:#1a1a2e!important;padding:.6rem 0!important;margin-right:1.5rem!important;text-decoration:none!important;white-space:nowrap!important;display:flex!important;align-items:center!important;background:none!important;border:none!important;box-shadow:none!important;}
-#hm-nav .hm-nav-brand svg{display:inline-block!important;vertical-align:middle!important;flex-shrink:0!important;}
-#hm-nav .hm-nav-link{font-size:.8rem!important;font-weight:500!important;color:#5a6070!important;text-decoration:none!important;padding:.55rem .75rem!important;border-bottom:2px solid transparent!important;transition:color .15s,border-color .15s!important;white-space:nowrap!important;background:none!important;}
-#hm-nav .hm-nav-link:hover{color:#1a1a2e!important;}
-#hm-nav .hm-nav-link.hm-nav-active{color:#3b82f6!important;border-bottom-color:#3b82f6!important;font-weight:600!important;}
-@media(max-width:600px){#hm-nav{padding:0 .75rem!important;}#hm-nav .hm-nav-brand{font-size:.85rem!important;margin-right:.75rem!important;}#hm-nav .hm-nav-link{font-size:.72rem!important;padding:.5rem .5rem!important;}}
-</style><nav id="hm-nav"><a href="${BASE}/" class="hm-nav-brand">${logo}HoopsMatic</a>${links}</nav>`;
-}
-function injectNav(html, page) { return html.replace(/<body[^>]*>/, m => m + navBar(page)); }
-function injectPersistentNav(html, page) {
-  const script = `<script>(function(){var navHtml=${JSON.stringify(navBar(page))};function ensureNav(){if(document.getElementById('hm-nav-root'))return;var d=document.createElement('div');d.id='hm-nav-root';d.innerHTML=navHtml;document.body.insertBefore(d,document.body.firstChild);}if(document.body)ensureNav();var obs=new MutationObserver(function(){setTimeout(ensureNav,50)});document.addEventListener('DOMContentLoaded',function(){ensureNav();obs.observe(document.body,{childList:true});});})();</script>`;
-  return html.replace('</head>', script + '</head>');
-}
-function stripCF(html) {
-  return html.replace(/<script[^>]*cdn-cgi[^>]*><\/script>/gi,'').replace(/<script[^>]*email-decode[^>]*><\/script>/gi,'').replace(/\s*data-cfasync="[^"]*"/gi,'').replace(/<a[^>]*cdn-cgi\/l\/email-protection[^>]*>[\s\S]*?<\/a>/gi,'').replace(/<span[^>]*__cf_email__[^>]*>[^<]*<\/span>/gi,'');
-}
+function processData(rows, contractRows, defenseMapInput) {
+  const dataRows = rows.slice(1);
+  const roster = [], historical = [];
+  let todayStr = null;
+  const shootingMap = {};
+  const expMap = {};
+  const usgMap = {};
 
-export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-
-    // === TRADE DATA STORE (POST) — secured ===
-    if (url.pathname === '/rmstore' && request.method === 'POST') {
-      try {
-        const cl = parseInt(request.headers.get('Content-Length') || '0');
-        if (cl > 51200) return safeError('Payload too large (max 50KB)', 413, {'Access-Control-Allow-Origin':'*'});
-        const body = await request.text();
-        if (body.length > 51200) return safeError('Payload too large', 413, {'Access-Control-Allow-Origin':'*'});
-        const token = crypto.randomUUID().replace(/-/g,'').slice(0,16);
-        const cache = caches.default;
-        ctx.waitUntil(cache.put(new Request('https://hoopsmatic.com/_trade/'+token), new Response(body, {headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=300'}})));
-        return new Response(JSON.stringify({token}), {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'}});
-      } catch(e) { return safeError('Trade store failed', 500, {'Access-Control-Allow-Origin':'*'}); }
-    }
-
-    // === TRADE DATA FETCH (GET) — token sanitized ===
-    if (url.pathname === '/rmfetch') {
-      const token = (url.searchParams.get('t')||'').replace(/[^a-z0-9]/gi,'').slice(0,32);
-      if (!token) return new Response('{}', {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'}});
-      try {
-        const cached = await caches.default.match(new Request('https://hoopsmatic.com/_trade/'+token));
-        return new Response(cached ? await cached.text() : '{}', {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'}});
-      } catch(e) { return new Response('{}', {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'}}); }
-    }
-
-    // === RM RELAY ===
-    if (url.pathname === '/rmrelay') {
-      const d = url.searchParams.get('d') || '';
-      const targetUrl = d ? RM_URL + '?rmtrade=' + encodeURIComponent(d) : RM_URL;
-      return new Response('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Redirecting...</title></head><body style="background:#f8f9fa;color:#1a1a2e;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Returning to Roster Manager...</p><script>window.location.href="'+targetUrl+'";<\/script></body></html>', {headers:{'Content-Type':'text/html;charset=UTF-8','Cache-Control':'no-store'}});
-    }
-
-    // === ANALYTICS DASHBOARD ===
-    if (url.pathname === '/analytics') {
-      return new Response(analyticsPage(), {headers:{'Content-Type':'text/html;charset=UTF-8','Cache-Control':'no-store'}});
-    }
-
-    // === HEALTH CHECK ===
-    if (url.pathname === '/version' || url.pathname === '/health') {
-      const checks = {};
-      try { const r = await fetch(sheetsURL(MAIN_SHEET,'Sheet1',env)+'&range=A1:A1',{headers:{'User-Agent':'Mozilla/5.0'}}); checks.sheets_api = r.ok?'ok':'error:'+r.status; } catch(e) { checks.sheets_api = 'unreachable'; }
-      try { const r = await fetch('https://raw.githubusercontent.com/aderoa/Injuries/main/index.html',{method:'HEAD',headers:{'User-Agent':'Mozilla/5.0'}}); checks.github = r.ok?'ok':'error:'+r.status; } catch(e) { checks.github = 'unreachable'; }
-      return new Response(JSON.stringify({version:'5.2.0',deployed:new Date().toISOString(),health:checks,pages:['/','/roster','/salary-season-finder','/contracts','/depth-charts','/defense','/real-value','/injuries','/draft']},null,2), {headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
-    }
-
-    // === API PROXIES ===
-    if (['/api/contracts','/api/roster','/api/draft','/api/inj-csv','/api/tv-csv'].includes(url.pathname)) {
-      const feedMap = {'/api/contracts':{sheet:MAIN_SHEET,tab:'Sheet6',ttl:600},'/api/roster':{sheet:MAIN_SHEET,tab:'Sheet1',ttl:600},'/api/draft':{sheet:MAIN_SHEET,tab:'Sheet4',ttl:3600},'/api/inj-csv':{sheet:INJ_SHEET,tab:'Injuries',ttl:300},'/api/tv-csv':{sheet:MAIN_SHEET,tab:'Sheet3',ttl:600}};
-      const feed = feedMap[url.pathname];
-      const ao = getAllowedOrigin(request); if (!ao) return new Response('Forbidden',{status:403});
-      const cache = caches.default, ck = new Request('https://hoopsmatic.com/_api_cache/'+url.pathname);
-      const cached = await cache.match(ck);
-      if (cached) return new Response(cached.body, {headers:{'Content-Type':'text/csv; charset=utf-8','Access-Control-Allow-Origin':ao,'X-Cache':'HIT'}});
-      try {
-        const csv = await fetchSheetAsCsv(feed.sheet,feed.tab,env);
-        if (!csv) return new Response('Upstream error',{status:502,headers:{'Access-Control-Allow-Origin':ao}});
-        ctx.waitUntil(cache.put(ck, new Response(csv,{headers:{'Content-Type':'text/csv; charset=utf-8','Cache-Control':`public, max-age=${feed.ttl}`}}).clone()));
-        return new Response(csv, {headers:{'Content-Type':'text/csv; charset=utf-8','Access-Control-Allow-Origin':ao,'Cache-Control':`public, max-age=${feed.ttl}`,'X-Cache':'MISS'}});
-      } catch(e) { return safeError('Data fetch failed',502,{'Access-Control-Allow-Origin':ao}); }
-    }
-
-    // === API: DEFENSE SC/MPG CACHE (written by defense page, read by TV page) ===
-    if (url.pathname === '/api/defense-cache') {
-      if (request.method === 'OPTIONS') return new Response(null, {headers:{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST','Access-Control-Allow-Headers':'Content-Type','Access-Control-Max-Age':'86400'}});
-      const cache = caches.default, ck = new Request('https://hoopsmatic.com/_cache/defense-scmpg');
-      if (request.method === 'POST') {
-        const body = await request.text();
-        try { JSON.parse(body); } catch(e) { return new Response('Invalid JSON',{status:400}); }
-        ctx.waitUntil(cache.put(ck, new Response(body,{headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=7200'}})));
-        return new Response('OK',{headers:{'Access-Control-Allow-Origin':'*'}});
+  // Defense SC/MPG map: either from cache (pre-computed) or from Sheet3 column
+  const defenseMap = Object.assign({}, defenseMapInput || {});
+  console.log('[Defense] Input map has', Object.keys(defenseMap).length, 'players');
+  
+  // Also scan Sheet3 headers for SC/MPG column (local override)
+  if (dataRows.length > 0) {
+    const headers = rows[0] || [];
+    const scMpgIdx = headers.findIndex(h => {
+      const u = (h||'').trim().toUpperCase();
+      return (u.includes('SC') && u.includes('MPG')) || u === 'SC_MPG' || u === 'DEF_SCMPG';
+    });
+    if (scMpgIdx >= 0) {
+      const nameIdx = scMpgIdx > 20 ? 22 : 1;
+      for (const row of dataRows) {
+        const name = (row[nameIdx] || '').trim();
+        const val = parseFloat(row[scMpgIdx]);
+        if (name && !isNaN(val) && val > 0) defenseMap[name] = val;
       }
-      const cached = await cache.match(ck);
-      if (cached) return new Response(cached.body, {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*','X-Cache':'HIT'}});
-      return new Response('{}',{headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*','X-Cache':'MISS'}});
+      console.log('[Defense] Sheet3 override: ' + Object.keys(defenseMap).length + ' players from col ' + scMpgIdx);
+    }
+  }
+  
+  if (Object.keys(defenseMap).length > 0) {
+    const sample = Object.entries(defenseMap).slice(0,3);
+    console.log('[Defense] Active: ' + Object.keys(defenseMap).length + ' players. Sample: ' + sample.map(([n,v]) => n + '=' + v.toFixed(4)).join(', '));
+  } else {
+    console.log('[Defense] No defense data — visit hoopsmatic.com/defense first to populate the cache');
+  }
+
+  for (const row of dataRows) {
+    while (row.length < 21) row.push('');
+    // Grab today's date from col S (index 18)
+    if (row[18] && !todayStr) todayStr = row[18];
+    if (row[0] && row[1]) {
+      const draftPick = parseInt(row[20]) || null; // Column U = draft position
+      roster.push({ team: row[0], player: row[1], rat365: parseFloat(row[2]) || 0, salary: parseInt(row[3].replace(/[$,]/g,'')) || 0, birthday: row[4] || '', draftPick: draftPick });
+      // EXP column (index 19)
+      if (row[19]) { const ev = parseInt(row[19]); if (!isNaN(ev)) expMap[row[1].trim()] = ev; }
+      if (row[22] && row[23]) { const uv = parseFloat(row[23]); if (!isNaN(uv) && uv > 0) usgMap[row[22].trim()] = uv; }
+    }
+    if (row[6] && row[7]) {
+      const g = parseInt(row[9]) || 0;
+      if (g > 0) historical.push({ year: row[6], player: row[7], totalRat: parseFloat(row[8].replace(/,/g,'')) || 0, games: g });
+    }
+    // Shooting penalty (col 12=player, col 17=shooting, 2025-26 block)
+    if (row[12] && row[17]) {
+      const sv = parseFloat(row[17]);
+      if (!isNaN(sv) && sv > 0) shootingMap[row[12].trim()] = sv;
+    }
+  }
+
+  const playerHist = {};
+  for (const h of historical) { const k = h.player.toLowerCase(); if (!playerHist[k]) playerHist[k] = []; playerHist[k].push(h); }
+
+  const totalSalaryPool = roster.reduce((s,p) => s + p.salary, 0);
+
+  // Parse ages early so GP correction can use them
+  function parseDate(s) {
+    if (!s) return null;
+    const parts = s.split('/');
+    if (parts.length === 3) return new Date(+parts[2], +parts[0]-1, +parts[1]);
+    return null;
+  }
+  const today = parseDate(todayStr) || new Date();
+  const ages = [];
+  for (const p of roster) {
+    const bd = parseDate(p.birthday);
+    if (bd) {
+      p.age = (today - bd) / (365.25 * 24 * 60 * 60 * 1000);
+      ages.push(p.age);
+    } else {
+      p.age = null;
+    }
+  }
+  const avgAge = ages.length > 0 ? ages.reduce((a,b) => a+b, 0) / ages.length : 26;
+  const maxDevYoung = avgAge - Math.min(...ages);
+
+  // GP correction helper — boosts players who missed time, never penalizes healthy players
+  function gpCorr(rawPerGame, expected, actual, playerAge) {
+    const pct = actual / expected;
+    if (pct < GAMES_MIN_PCT) return rawPerGame;
+    const rawMult = Math.max(1.0, Math.min(GAMES_MAX_MULT, Math.pow(expected / actual, GAMES_BETA)));
+    if (playerAge !== null && playerAge > GP_AGE_THRESHOLD) {
+      const fade = Math.exp(-GP_AGE_DECAY * (playerAge - GP_AGE_THRESHOLD));
+      const boost = (rawMult - 1.0) * fade;
+      return rawPerGame * (1.0 + boost);
+    }
+    return rawPerGame * rawMult;
+  }
+
+  const SEASON_WEIGHT = {'2025-26':1.0,'2024-25':0.6,'2023-24':0.36,'2022-23':0.216,'2021-22':0.1296};
+  const CUR_YEAR = '2025-26';
+  const EXPECTED = {'2021-22':82,'2022-23':82,'2023-24':82,'2024-25':82,'2025-26':82};
+
+  for (const p of roster) {
+    const hist = playerHist[p.player.toLowerCase()] || [];
+    let num = 0, den = 0;
+    let priorNum = 0, priorDen = 0; // Historical watermark excluding current season
+    for (const h of hist) {
+      const w = SEASON_WEIGHT[h.year] || 0;
+      if (w <= 0 || h.games <= 0) continue;
+      let perGame = h.totalRat / h.games;
+      // Per-season games correction with age fade
+      const exp = EXPECTED[h.year] || 82;
+      perGame = gpCorr(perGame, exp, h.games, p.age);
+      num += perGame * w * h.games;
+      den += w * h.games;
+      if (h.year !== CUR_YEAR) {
+        priorNum += perGame * w * h.games;
+        priorDen += w * h.games;
+      }
+    }
+    const fullWM = den > 0 ? num / den : 0;
+    const priorWM = priorDen > 0 ? priorNum / priorDen : 0;
+    // Injury protection: only kicks in for drops > 5% (filters out natural variance)
+    if (priorDen > 0 && fullWM < priorWM * 0.95) {
+      const dropPct = 1 - (fullWM / priorWM); // e.g. 0.10 = 10% drop, 0.50 = 50% drop
+      const boost = dropPct > 0.20 ? 1.0 + dropPct * 0.12 : 1.0; // graduated boost for severe drops only
+      p.watermark = priorWM * boost;
+    } else {
+      p.watermark = fullWM;
     }
 
-    // === API: REAL VALUE SNAPSHOT (server-side, daily rotation) ===
-    // Stores two snapshots: "today" (current) and "yesterday" (prior day).
-    // When a day boundary is crossed (ET), today becomes yesterday before new data is written.
-    // Evolution delta = today - yesterday.
-    if (url.pathname === '/api/rv-snapshot') {
-      if (request.method === 'OPTIONS') return new Response(null, {headers:{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST','Access-Control-Allow-Headers':'Content-Type','Access-Control-Max-Age':'86400'}});
-      const cache = caches.default;
-      const todayKey = new Request('https://hoopsmatic.com/_cache/rv-snap-today');
-      const yesterdayKey = new Request('https://hoopsmatic.com/_cache/rv-snap-yesterday');
-
-      // Compute current ET date (YYYY-MM-DD)
-      function getETDate() {
-        const d = new Date();
-        const s = d.toLocaleString('en-US', {timeZone:'America/New_York', year:'numeric', month:'2-digit', day:'2-digit'});
-        const parts = s.match(/(\d+)\/(\d+)\/(\d+)/);
-        return parts ? `${parts[3]}-${parts[1]}-${parts[2]}` : '';
+    const cur = hist.filter(h => h.year === CUR_YEAR);
+    p.curGames = cur.reduce((s,h) => s+h.games, 0);
+    p.expGames = EXPECTED[CUR_YEAR];
+    if (p.curGames > 0 && (p.curGames/p.expGames) >= GAMES_MIN_PCT) {
+      const rawMult = Math.max(1.0, Math.min(GAMES_MAX_MULT, Math.pow(p.expGames/p.curGames, GAMES_BETA)));
+      if (p.age !== null && p.age > GP_AGE_THRESHOLD) {
+        const fade = Math.exp(-GP_AGE_DECAY * (p.age - GP_AGE_THRESHOLD));
+        p.gamesCorr = 1.0 + (rawMult - 1.0) * fade;
+      } else {
+        p.gamesCorr = rawMult;
       }
-      const currentETDate = getETDate();
+    } else { p.gamesCorr = 1.0; }
 
-      if (request.method === 'POST') {
-        const body = await request.text();
-        let parsed;
-        try { parsed = JSON.parse(body); } catch(e) { return new Response('Invalid JSON',{status:400}); }
-        if (!parsed || typeof parsed !== 'object' || Object.keys(parsed).length < 100) {
-          return new Response('Snapshot too small', {status:400, headers:{'Access-Control-Allow-Origin':'*'}});
-        }
-        // Check existing today snapshot
-        const existingToday = await cache.match(todayKey);
-        let existingDate = null;
-        if (existingToday) {
-          try { existingDate = (await existingToday.clone().json())._date; } catch(e) {}
-        }
-        // If existing snapshot is from a prior ET day, rotate it to yesterday before overwriting
-        let rotated = false;
-        if (existingDate && existingDate !== currentETDate) {
-          const existingBody = await existingToday.clone().text();
-          ctx.waitUntil(cache.put(yesterdayKey, new Response(existingBody, {headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=172800'}})));
-          rotated = true;
-        }
-        // Always overwrite today's snapshot — captures latest data within the ET day
-        parsed._date = currentETDate;
-        parsed._updated = new Date().toISOString();
-        const newBody = JSON.stringify(parsed);
-        ctx.waitUntil(cache.put(todayKey, new Response(newBody, {headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=172800'}})));
-        // Return yesterday's snapshot in POST response so client can use it immediately
-        let yesterdayData = null;
-        if (rotated) {
-          // We just rotated the old today → yesterday, so old today IS yesterday
-          if (existingToday) { try { yesterdayData = await existingToday.clone().json(); } catch(e){} }
+    // Season weights for tooltip
+    const yrs = [...new Set(hist.map(h => h.year))].sort();
+    p.seasonInfo = yrs.map(yr => {
+      const yh = hist.filter(h => h.year === yr);
+      const g = yh.reduce((s,h) => s+h.games, 0);
+      const r = yh.reduce((s,h) => s+h.totalRat, 0);
+      const w = SEASON_WEIGHT[yr] || 0;
+      return { year: yr, avg: g > 0 ? r/g : 0, games: g, weight: w };
+    }).filter(s => s.weight > 0);
+
+    // Games-corrected RAT 365 (with age fade)
+    if (p.curGames > 0) {
+      const pct = p.curGames / EXPECTED[CUR_YEAR];
+      if (pct >= GAMES_MIN_PCT) {
+        const rawMult = Math.max(1.0, Math.min(GAMES_MAX_MULT, Math.pow(EXPECTED[CUR_YEAR]/p.curGames, GAMES_BETA)));
+        if (p.age !== null && p.age > GP_AGE_THRESHOLD) {
+          const fade = Math.exp(-GP_AGE_DECAY * (p.age - GP_AGE_THRESHOLD));
+          p.rat365adj = p.rat365 * (1.0 + (rawMult - 1.0) * fade);
         } else {
-          const yRes = await cache.match(yesterdayKey);
-          if (yRes) { try { yesterdayData = await yRes.json(); } catch(e){} }
+          p.rat365adj = p.rat365 * rawMult;
         }
-        return new Response(JSON.stringify({ok:true, rotated, date: currentETDate, players: Object.keys(parsed).filter(k => !k.startsWith('_')).length, yesterday: yesterdayData}), {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'}});
+      } else { p.rat365adj = p.rat365; }
+    } else {
+      const prev = hist.filter(h => h.year === '2024-25');
+      const pg = prev.reduce((s,h) => s+h.games, 0) || 82;
+      const pct = pg / 82;
+      if (pct >= GAMES_MIN_PCT) {
+        const rawMult = Math.max(1.0, Math.min(GAMES_MAX_MULT, Math.pow(82/pg, GAMES_BETA)));
+        if (p.age !== null && p.age > GP_AGE_THRESHOLD) {
+          const fade = Math.exp(-GP_AGE_DECAY * (p.age - GP_AGE_THRESHOLD));
+          p.rat365adj = p.rat365 * (1.0 + (rawMult - 1.0) * fade);
+        } else {
+          p.rat365adj = p.rat365 * rawMult;
+        }
+      } else { p.rat365adj = p.rat365; }
+    }
+  }
+
+  // Age multiplier: youth bonus below avg, mild penalty above 35
+  for (const p of roster) {
+    if (p.age !== null && p.age < avgAge) {
+      p.ageMult = 1.0 + AGE_MAX_BONUS * (avgAge - p.age) / maxDevYoung;
+    } else if (p.age !== null && p.age >= OLD_THRESHOLD) {
+      p.ageMult = Math.max(OLD_FLOOR, 1.0 - OLD_PENALTY_PER_YEAR * (p.age - OLD_THRESHOLD));
+    } else {
+      p.ageMult = 1.0;
+    }
+  }
+
+  // Injury protection for rat365adj: if current-season rating is far below
+  // historical watermark, use watermark as floor (player was injured, not declining)
+  for (const p of roster) {
+    if (p.rat365adj < p.watermark * 0.5) {
+      p.rat365adj = p.watermark;
+    }
+  }
+
+  // Defensive SC/MPG: additive bonus to watermark (compounds through 3.2 exponent)
+  // Up to ±3 watermark points based on SC/MPG vs league average
+  const DEF_MAX_BONUS = 1.5;
+  const defVals = Object.values(defenseMap);
+  const defAvg = defVals.length ? defVals.reduce((s,v) => s+v, 0) / defVals.length : 0;
+  for (const p of roster) {
+    const playerDef = defenseMap[p.player] || 0;
+    p.defenseAdj = (defAvg > 0 && playerDef > 0) ? Math.max(-DEF_MAX_BONUS, Math.min(DEF_MAX_BONUS, (playerDef - defAvg) / defAvg * DEF_MAX_BONUS)) : 0;
+    p.watermark += p.defenseAdj;
+    p.rat365adj += p.defenseAdj;
+  }
+
+  // Top-20 RAT 365 production bonus: elite current-season performers get a WM nudge
+  const TOP20_TIERS = [{from:1,to:5,bonus:1.5},{from:6,to:10,bonus:1.2},{from:11,to:15,bonus:1.0},{from:16,to:20,bonus:0.8}];
+  const rat365Sorted = [...roster].sort((a,b) => (b.rat365||0) - (a.rat365||0));
+  for (let i = 0; i < Math.min(20, rat365Sorted.length); i++) {
+    const p = rat365Sorted[i];
+    const tier = TOP20_TIERS.find(t => (i+1) >= t.from && (i+1) <= t.to);
+    if (tier) {
+      p.top20Bonus = tier.bonus;
+      p.watermark += tier.bonus;
+      p.rat365adj += tier.bonus;
+    }
+  }
+
+  // Offensive creation index: USG% × RAT365
+  const CREATION_TIERS = [{from:1,to:5,bonus:1.2},{from:6,to:10,bonus:0.9},{from:11,to:20,bonus:0.6},{from:21,to:30,bonus:0.3}];
+  const creationSorted = [...roster].filter(p => (usgMap[p.player]||0) > 0 && p.rat365 >= 8)
+    .map(p => ({...p, _ci: (usgMap[p.player]||0) * p.rat365}))
+    .sort((a,b) => b._ci - a._ci);
+  for (let i = 0; i < Math.min(30, creationSorted.length); i++) {
+    const cp = creationSorted[i];
+    const tier = CREATION_TIERS.find(t => (i+1) >= t.from && (i+1) <= t.to);
+    if (tier) {
+      const p = roster.find(r => r.player === cp.player);
+      if (p) { p.creationBonus = tier.bonus; p.watermark += tier.bonus; p.rat365adj += tier.bonus; }
+    }
+  }
+
+  // Real value: 92/8 blend × age multiplier × shooting penalty, then renormalize to pool
+  // Soft-capped exponent: compresses elite outliers while preserving mid-tier separation
+  function softScore(r) { const s = Math.pow(Math.max(r, 0), EXPONENT); return s / (1.0 + s / KNEE); }
+  const totalAdjWM = roster.reduce((s,p) => s + softScore(p.watermark), 0);
+  const totalAdjRAT = roster.reduce((s,p) => s + softScore(p.rat365adj), 0);
+  for (const p of roster) {
+    const tvWM = (softScore(p.watermark) / totalAdjWM) * totalSalaryPool;
+    const tvRAT = (softScore(p.rat365adj) / totalAdjRAT) * totalSalaryPool;
+    p.tvPreAge = WM_WEIGHT * tvWM + RAT_WEIGHT * tvRAT;
+    // Shooting penalty: decrease by (value × 100)%
+    p.shootingPenalty = (shootingMap[p.player] || 0) * 2;
+    p.shootingMult = 1 - p.shootingPenalty;
+    p.tvWithAge = p.tvPreAge * p.ageMult * p.shootingMult;
+  }
+  const totalWithAge = roster.reduce((s,p) => s + p.tvWithAge, 0);
+  
+  // Calculate potential bonus for young players
+  function calcPotentialBonus(age, draftPick) {
+    // Only for players under 25 with valid draft position (1-60)
+    if (age === null || age >= MAX_POTENTIAL_AGE || !draftPick || draftPick < 1 || draftPick > 60) {
+      return 0;
+    }
+    // Draft position factor: exponential decay (pick 1 = 1.0, pick 60 ≈ 0.05)
+    const draftFactor = Math.exp(-DRAFT_DECAY * (draftPick - 1));
+    // Age factor: exponential decay (18.82 years = 1.0, 25 years ≈ 0.04)
+    const ageFromMin = Math.max(0, age - MIN_ROOKIE_AGE);
+    const ageFactor = Math.exp(-AGE_DECAY * ageFromMin);
+    return Math.round(POTENTIAL_MAX * draftFactor * ageFactor);
+  }
+  
+  // Compute final real values: base TV + potential bonus
+  for (const p of roster) {
+    const baseTV = Math.round((p.tvWithAge / totalWithAge) * totalSalaryPool);
+    p.potentialBonus = calcPotentialBonus(p.age, p.draftPick);
+    p.uncappedTV = baseTV + p.potentialBonus;
+  }
+  // Renormalize so total TV = salary pool (potential bonuses inflate the total)
+  const rawTotal = roster.reduce((s,p) => s + p.uncappedTV, 0);
+  const normFactor = totalSalaryPool / rawTotal;
+  for (const p of roster) {
+    p.uncappedTV = Math.round(p.uncappedTV * normFactor);
+    p.potentialBonus = Math.round(p.potentialBonus * normFactor);
+  }
+  for (const p of roster) {
+    p.exp = (expMap[p.player] !== undefined) ? expMap[p.player] : null;
+    // Estimate experience from age if EXP column is missing
+    const effExp = p.exp !== null ? p.exp : (p.age !== null ? Math.max(0, Math.round(p.age - 19)) : 0);
+    p.salCeil = getMaxSal(effExp);
+    // Floor: two-way for ≤3 yrs if under two-way; vet min if between two-way and vet min
+    const vetMin = effExp >= 10 ? MIN_SAL_10 : (MIN_SAL[effExp] || MIN_SAL[0]);
+    p.salFloor = effExp <= 3 ? TWO_WAY_SAL : vetMin;
+    p.capped = false;
+    p.floored = false;
+    p.twoWay = false;
+    if (p.uncappedTV > p.salCeil) { p.capped = true; }
+    else if (effExp <= 3 && p.uncappedTV < TWO_WAY_SAL) { p.floored = true; p.twoWay = true; }
+    else if (p.uncappedTV < vetMin && (effExp > 3 || p.uncappedTV >= TWO_WAY_SAL)) { p.floored = true; }
+    // Real value = uncapped real value; category = label
+    p.tradeValue = p.uncappedTV;
+    if (p.capped) { p.category = 'Max Player'; }
+    else if (p.twoWay) { p.category = 'Two-Way Player'; }
+    else if (p.floored) { p.category = 'Minimum Contract Player'; }
+    else { p.category = fmtFullTV$(p.uncappedTV); }
+    p.surplus = p.tradeValue - p.salary;
+  }
+
+  // ======== TRADE VALUE (contract-based surplus) ========
+  // Parse contracts sheet: cols [0]=PLAYER, [7]=2026 sal, [9]=ST25-26, [10]=2027 sal, [12]=ST26-27, etc.
+  // Also: [26]=OPTION, [27]=END, [38]=YOS
+  const contractMap = {};
+  if (contractRows && contractRows.length > 1) {
+    const parseSal = v => { const s = (v||'').replace(/[$,]/g,'').trim(); const n = parseInt(s); return isNaN(n) ? 0 : n; };
+    for (let i = 1; i < contractRows.length; i++) {
+      const r = contractRows[i];
+      if (!r[0] || r[0].length < 2) continue;
+      const name = r[0].trim();
+      const yrs = [];
+      const colMap = [{s:7,t:9,y:2026},{s:10,t:12,y:2027},{s:13,t:15,y:2028},{s:16,t:18,y:2029},{s:19,t:21,y:2030},{s:22,t:24,y:2031}];
+      for (const cm of colMap) {
+        const sal = parseSal(r[cm.s]);
+        const st = ((r[cm.t]||'').trim().toUpperCase());
+        if (sal > 0) yrs.push({ year: cm.y, salary: sal, status: st });
+      }
+      const end = parseInt(r[27]) || 0;
+      const yos = parseInt(r[38]);
+      const option = (r[26]||'').trim().toUpperCase();
+      contractMap[name] = { yrs, end, yos: isNaN(yos) ? 99 : yos, option };
+    }
+  }
+
+  // Max salary % by YOS (of salary cap)
+  const maxPctByYOS = yos => yos >= 10 ? 0.35 : yos >= 7 ? 0.30 : 0.25;
+
+  // Wear-and-tear discount: 5% per year for signed contract years (injury/decline risk)
+  // Does NOT apply to current season or RFA projected years (no commitment yet)
+  const WEAR_TEAR = 0.05;
+
+  // Compute Trade Value for each player
+  const curCap = CAP_PROJ[2026];
+  for (const p of roster) {
+    const c = contractMap[p.player];
+    p.contractYears = [];
+    p.contractEnd = 0;
+    p.contractTV = 0;
+    p.rfaYears = [];
+    p.poDeclined = false;
+    p.toDeclined = false;
+
+    if (!c || p.uncappedTV <= 0) continue;
+
+    p.contractEnd = c.end;
+    const capPct = p.uncappedTV / curCap; // Real Value as % of current cap
+
+    // Step 1: 2025-26 surplus (current season — no discount)
+    const surplus26 = p.uncappedTV - p.salary;
+    let tvSum = surplus26;
+    p.contractYears.push({ year: 2026, salary: p.salary, projVal: p.uncappedTV, surplus: surplus26, status: 'CURRENT', wt: 1.0 });
+
+    // Step 2: Future contract years (2027+) with PO/TO detection and wear-and-tear
+    let effectiveEnd = c.end;
+    for (const yr of c.yrs) {
+      if (yr.year < 2027) continue;
+      const projCap = CAP_PROJ[yr.year];
+      if (!projCap) continue;
+      const yearsOut = yr.year - 2026;
+      const wtFactor = Math.pow(1 - WEAR_TEAR, yearsOut);
+      const projVal = Math.round(capPct * projCap * wtFactor);
+
+      // Player Option: if projected value > option salary, player opts out
+      if (yr.status.includes('PLAYER OPT') && projVal > yr.salary) {
+        p.poDeclined = true;
+        effectiveEnd = yr.year - 1;
+        break;
       }
 
-      // GET: return {today: {...}, yesterday: {...}}
-      const [todayRes, yesterdayRes] = await Promise.all([cache.match(todayKey), cache.match(yesterdayKey)]);
-      let today = null, yesterday = null;
-      if (todayRes) { try { today = await todayRes.json(); } catch(e){} }
-      if (yesterdayRes) { try { yesterday = await yesterdayRes.json(); } catch(e){} }
-      return new Response(JSON.stringify({today, yesterday, currentETDate}), {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*','Cache-Control':'no-store'}});
-    }
-
-    // === API: ACTIVITY TRACKER (anonymous aggregate counts) ===
-    if (url.pathname === '/api/tracker') {
-      if (request.method === 'OPTIONS') return new Response(null, {headers:{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST','Access-Control-Allow-Headers':'Content-Type','Access-Control-Max-Age':'86400'}});
-      const cache = caches.default, ck = new Request('https://hoopsmatic.com/_cache/activity-tracker');
-
-      if (request.method === 'POST') {
-        try {
-          const body = await request.json();
-          const { tool, action, player, team, extra } = body;
-          if (!tool || (!action && tool !== 'compare')) return new Response('Missing tool/action',{status:400,headers:{'Access-Control-Allow-Origin':'*'}});
-
-          // Load existing data
-          let data = { tm: { players: {}, teams: {}, trades: 0, recent: [] }, rm: { drafted: {}, signed: {}, waived: {}, optionPickup: {}, optionDecline: {}, draftedByTeam: {}, signedByTeam: {}, totalSims: 0, recent: [] }, compare: { players: {}, pairs: {}, total: 0, recent: [] }, _updated: '' };
-          const existing = await cache.match(ck);
-          if (existing) { try { data = await existing.json(); } catch(e) {} }
-          // Ensure structure
-          if (!data.tm) data.tm = { players: {}, teams: {}, trades: 0, recent: [] };
-          if (!data.rm) data.rm = { drafted: {}, signed: {}, waived: {}, optionPickup: {}, optionDecline: {}, draftedByTeam: {}, signedByTeam: {}, totalSims: 0, recent: [] };
-          if (!data.compare) data.compare = { players: {}, pairs: {}, total: 0, recent: [] };
-          if (!data.tm.recent) data.tm.recent = [];
-          if (!data.rm.recent) data.rm.recent = [];
-          if (!data.compare.recent) data.compare.recent = [];
-          const ts = new Date().toISOString();
-
-          if (tool === 'compare') {
-            const { player1, player2 } = body;
-            if (player1 && player2) {
-              data.compare.players[player1] = (data.compare.players[player1]||0) + 1;
-              data.compare.players[player2] = (data.compare.players[player2]||0) + 1;
-              const pairKey = [player1, player2].sort().join(' vs ');
-              data.compare.pairs[pairKey] = (data.compare.pairs[pairKey]||0) + 1;
-              data.compare.total = (data.compare.total||0) + 1;
-              data.compare.recent.unshift({ player1, player2, ts });
-              if (data.compare.recent.length > 200) data.compare.recent = data.compare.recent.slice(0, 200);
-            }
-          } else if (tool === 'tm') {
-            if (action === 'trade' && Array.isArray(body.players)) {
-              for (const p of body.players) { data.tm.players[p] = (data.tm.players[p]||0) + 1; }
-              if (Array.isArray(body.teams)) { for (const t of body.teams) { data.tm.teams[t] = (data.tm.teams[t]||0) + 1; } }
-              data.tm.trades = (data.tm.trades||0) + 1;
-              data.tm.recent.unshift({ action: 'trade', players: body.players, teams: body.teams || [], ts });
-              if (data.tm.recent.length > 200) data.tm.recent = data.tm.recent.slice(0, 200);
-            }
-          } else if (tool === 'rm') {
-            const entry = { action, player: player||null, team: team||null, ts };
-            if (extra) entry.extra = extra;
-            if (action === 'draft' && player) {
-              data.rm.drafted[player] = (data.rm.drafted[player]||0) + 1;
-              if (team) data.rm.draftedByTeam[team] = (data.rm.draftedByTeam[team]||0) + 1;
-            } else if (action === 'sign' && player) {
-              data.rm.signed[player] = (data.rm.signed[player]||0) + 1;
-              if (team) data.rm.signedByTeam[team] = (data.rm.signedByTeam[team]||0) + 1;
-            } else if (action === 'waive' && player) {
-              data.rm.waived[player] = (data.rm.waived[player]||0) + 1;
-            } else if (action === 'option_pickup' && player) {
-              data.rm.optionPickup[player] = (data.rm.optionPickup[player]||0) + 1;
-            } else if (action === 'option_decline' && player) {
-              data.rm.optionDecline[player] = (data.rm.optionDecline[player]||0) + 1;
-            } else if (action === 'sim_start') {
-              data.rm.totalSims = (data.rm.totalSims||0) + 1;
-            }
-            data.rm.recent.unshift(entry);
-            if (data.rm.recent.length > 500) data.rm.recent = data.rm.recent.slice(0, 500);
-          }
-
-          data._updated = new Date().toISOString();
-          ctx.waitUntil(cache.put(ck, new Response(JSON.stringify(data), {headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=86400'}})));
-          return new Response(JSON.stringify({ok:true}), {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'}});
-        } catch(e) { return new Response(JSON.stringify({error:e.message}), {status:400,headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'}}); }
+      // Team Option: if option salary > projected value, team declines
+      if (yr.status.includes('TEAM OPT') && yr.salary > projVal) {
+        p.toDeclined = true;
+        effectiveEnd = yr.year - 1;
+        break;
       }
 
-      // GET: return leaderboards
-      const existing = await cache.match(ck);
-      if (!existing) return new Response(JSON.stringify({tm:{players:{},teams:{},trades:0},rm:{drafted:{},signed:{},waived:{},optionPickup:{},optionDecline:{},draftedByTeam:{},signedByTeam:{},totalSims:0}}), {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'}});
-      return new Response(existing.body, {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*','Cache-Control':'no-store'}});
+      const surp = projVal - yr.salary;
+      tvSum += surp;
+      p.contractYears.push({ year: yr.year, salary: yr.salary, projVal, surplus: Math.round(surp), status: yr.status, wt: Math.round(wtFactor * 1000) / 1000 });
     }
 
-    // === API: DEFENSE DATA JSON ===
-    if (url.pathname === '/api/defense-data') {
-      const ao = getAllowedOrigin(request); if (!ao) return new Response('Forbidden',{status:403});
-      const cache = caches.default, ck = new Request('https://hoopsmatic.com/_api_cache/defense-data');
-      const cached = await cache.match(ck);
-      if (cached) return new Response(cached.body, {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':ao,'X-Cache':'HIT'}});
-      try {
-        const r = await fetch(sheetsURL(DEF_SHEET,'Defensive_Rankings',env),{headers:{'User-Agent':'Mozilla/5.0'}});
-        if (!r.ok) return safeError('Upstream error',502,{'Access-Control-Allow-Origin':ao});
-        const j = await r.text();
-        ctx.waitUntil(cache.put(ck, new Response(j,{headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=300'}})));
-        return new Response(j, {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':ao,'Cache-Control':'public, max-age=300','X-Cache':'MISS'}});
-      } catch(e) { return safeError('Defense data failed',502,{'Access-Control-Allow-Origin':ao}); }
-    }
-
-    // === API: DRAFT CSV (Sheets API v4) ===
-    if (url.pathname === '/api/draft-csv') {
-      const ao = getAllowedOrigin(request); if (!ao) return new Response('Forbidden',{status:403});
-      const cache = caches.default, ck = new Request('https://hoopsmatic.com/_api_cache/draft-csv');
-      const cached = await cache.match(ck);
-      if (cached) return new Response(cached.body, {headers:{'Content-Type':'text/csv; charset=utf-8','Access-Control-Allow-Origin':ao,'X-Cache':'HIT'}});
-      try {
-        const DRAFT_SHEET_PUB = '2PACX-1vSg6im6IYB6HXMGzQbmmBnLw9SfQLzxCSo8OfChxlJLhsB6BBCO0wPF_TMch0YgAbtFqYkwDWrsxRe7';
-        const csvUrl = `https://docs.google.com/spreadsheets/d/e/${DRAFT_SHEET_PUB}/pub?gid=965849547&single=true&output=csv`;
-        const r = await fetch(csvUrl,{headers:{'User-Agent':'Mozilla/5.0'}});
-        if (!r.ok) return safeError('Draft upstream error',502,{'Access-Control-Allow-Origin':ao});
-        const csv = await r.text();
-        ctx.waitUntil(cache.put(ck, new Response(csv,{headers:{'Content-Type':'text/csv; charset=utf-8','Cache-Control':'public, max-age=3600'}})));
-        return new Response(csv, {headers:{'Content-Type':'text/csv; charset=utf-8','Access-Control-Allow-Origin':ao,'Cache-Control':'public, max-age=3600','X-Cache':'MISS'}});
-      } catch(e) { return safeError('Draft fetch failed',502,{'Access-Control-Allow-Origin':ao}); }
-    }
-
-    // === API: PLAYER STATS ===
-    if (url.pathname === '/api/stats') {
-      const ao = getAllowedOrigin(request); if (!ao) return new Response('Forbidden',{status:403});
-      const cache = caches.default, ck = new Request('https://hoopsmatic.com/_stats_cache/pergame');
-      const cached = await cache.match(ck);
-      if (cached) return new Response(cached.body, {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':ao,'X-Cache':'HIT'}});
-      try {
-        const csvResp = await fetch('https://docs.google.com/spreadsheets/d/e/2PACX-1vS76TFTnuKfq8d_bHeM6lF06zCzMisiytTbdIA0i0woFNrlO5b4NwdGpmYG1wtVeu_EvMjYexWFP5vA/pub?gid=1181534071&single=true&output=csv',{headers:{'User-Agent':'Mozilla/5.0'}});
-        if (!csvResp.ok) return safeError('Stats unavailable',502,{'Access-Control-Allow-Origin':ao});
-        const lines = (await csvResp.text()).split('\n').map(l=>l.replace(/\r$/,''));
-        let hi = -1; for (let i=0;i<Math.min(lines.length,5);i++) if(lines[i].includes('PLAYER_NAME')){hi=i;break;}
-        if (hi<0) return safeError('No header',500,{'Access-Control-Allow-Origin':ao});
-        const hdr=lines[hi].split(','), ci={}; hdr.forEach((h,i)=>{ci[h.trim()]=i;});
-        const slim=[]; for(let i=hi+1;i<lines.length;i++){const c=lines[i].split(','),nm=(c[ci.PLAYER_NAME]||'').trim();if(!nm)continue;slim.push({name:nm,team:(c[ci.TEAM_ABBREVIATION]||'').trim(),gp:parseInt(c[ci.GP])||0,mpg:parseFloat(c[ci.MIN])||0,ppg:parseFloat(c[ci.PTS])||0,rpg:parseFloat(c[ci.REB])||0,apg:parseFloat(c[ci.AST])||0});}
-        const body=JSON.stringify(slim);
-        ctx.waitUntil(cache.put(ck, new Response(body,{headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=7200'}})));
-        return new Response(body,{headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':ao,'Cache-Control':'public, max-age=7200','X-Cache':'MISS'}});
-      } catch(e) { return safeError('Stats failed',500,{'Access-Control-Allow-Origin':ao}); }
-    }
-
-    // === API: DEFENSE ===
-    if (url.pathname === '/api/defense') {
-      const ao = getAllowedOrigin(request); if (!ao) return new Response('Forbidden',{status:403});
-      const cache = caches.default, ck = new Request('https://hoopsmatic.com/_cache/defense-data');
-      const cached = await cache.match(ck);
-      if (cached) return new Response(cached.body, {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':ao,'X-Cache':'HIT'}});
-      try {
-        const r = await fetch(sheetsURL(DEF_SHEET,'Defensive_Rankings',env),{headers:{'User-Agent':'Mozilla/5.0'}});
-        if (!r.ok) return safeError('Sheets error',502,{'Access-Control-Allow-Origin':ao});
-        const b = await r.text();
-        ctx.waitUntil(cache.put(ck, new Response(b,{headers:{'Content-Type':'application/json','Cache-Control':'public, max-age=3600'}})));
-        return new Response(b, {headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':ao,'Cache-Control':'public, max-age=3600','X-Cache':'MISS'}});
-      } catch(e) { return safeError('Defense failed',500,{'Access-Control-Allow-Origin':ao}); }
-    }
-
-    // === RM API: Roster data (Sheet1) — no origin check, same-domain ===
-    // === RM API endpoints with Worker-side caching ===
-    if (['/api/rm-roster','/api/rm-draft','/api/rm-contracts','/api/rm-tv'].includes(url.pathname)) {
-      const tabMap = {'/api/rm-roster':'Sheet1','/api/rm-draft':'Sheet4','/api/rm-contracts':'Sheet6','/api/rm-tv':'Sheet3'};
-      const ttlMap = {'/api/rm-roster':180,'/api/rm-draft':600,'/api/rm-contracts':300,'/api/rm-tv':300};
-      try {
-        const cache = caches.default, ck = new Request('https://hoopsmatic.com/_api_cache'+url.pathname);
-        const cached = await cache.match(ck);
-        if (cached) return new Response(await cached.text(), { headers: { 'Content-Type': 'text/csv; charset=UTF-8', 'Cache-Control': 'public, max-age=120', 'Access-Control-Allow-Origin': '*' } });
-        const csv = await fetchSheetAsCsv(MAIN_SHEET, tabMap[url.pathname], env);
-        if (!csv) return safeError('Failed to fetch ' + url.pathname, 502);
-        const ttl = ttlMap[url.pathname] || 180;
-        ctx.waitUntil(cache.put(ck, new Response(csv, {headers:{'Content-Type':'text/csv','Cache-Control':'public, max-age='+ttl}})));
-        return new Response(csv, { headers: { 'Content-Type': 'text/csv; charset=UTF-8', 'Cache-Control': 'public, max-age=120', 'Access-Control-Allow-Origin': '*' } });
-      } catch (err) { return safeError('RM API error: ' + url.pathname); }
-    }
-
-    // === SEASON COMPARISON API: proxy Google Sheets to hide sheet ID ===
-    if (url.pathname === '/api/season-data') {
-      const tabGids = {rsStats:1169156479,rsStatsPerGame:1181534071,advanced:339737563,misc:52077302,scoring:867936474,usage:1415078232,clutch:10789411,bio:442838927,hustle:439158060,shotLocation:1205457990,defense:1957258468};
-      const tab = url.searchParams.get('tab');
-      if (!tab || !tabGids[tab]) return new Response('Invalid tab',{status:400});
-      try {
-        const cache = caches.default, ck = new Request('https://hoopsmatic.com/_api_cache/season-'+tab);
-        const cached = await cache.match(ck);
-        if (cached) return new Response(await cached.text(), {headers:{'Content-Type':'text/csv; charset=UTF-8','Cache-Control':'public, max-age=300','Access-Control-Allow-Origin':'*'}});
-        const gid = tabGids[tab];
-        const csvUrl = `https://docs.google.com/spreadsheets/d/${DEF_SHEET}/export?format=csv&gid=${gid}`;
-        const r = await fetch(csvUrl,{headers:{'User-Agent':'Mozilla/5.0'},redirect:'follow'});
-        if (!r.ok) return safeError('Failed to fetch season data',502);
-        const csv = await r.text();
-        ctx.waitUntil(cache.put(ck, new Response(csv,{headers:{'Content-Type':'text/csv','Cache-Control':'public, max-age=300'}})));
-        return new Response(csv, {headers:{'Content-Type':'text/csv; charset=UTF-8','Cache-Control':'public, max-age=300','Access-Control-Allow-Origin':'*'}});
-      } catch(err) { return safeError('Season data API error'); }
-    }
-
-    // === CORS preflight ===
-    if (request.method === 'OPTIONS') return new Response(null, {headers:{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Access-Control-Allow-Headers':'*'}});
-
-    // ================================================================
-    // PAGE HANDLERS
-    // ================================================================
-
-    // === ROSTER MANAGER (includes /roster/:team/:phase deep links) ===
-    if (url.pathname === '/roster' || url.pathname.startsWith('/roster/')) {
-      try {
-        const cache = caches.default, ck = new Request('https://hoopsmatic.com/_page_cache/roster');
-        let assembled = null;
-        if (!url.searchParams.has('nocache')) { const c = await cache.match(ck); if (c) assembled = await c.text(); }
-        if (!assembled) {
-          const htmlR = await fetch(RM_HTML_URL+'?t='+Date.now(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'*/*','Cache-Control':'no-cache, no-store','Pragma':'no-cache'}});
-          if (!htmlR.ok) return safeError('Failed to fetch Roster Manager',502);
-          assembled = await htmlR.text();
-          assembled = injectNav(assembled, 'roster');
-          assembled = injectOG(assembled, 'roster');
-          ctx.waitUntil(cache.put(ck, new Response(assembled,{headers:{'Content-Type':'text/html;charset=UTF-8','Cache-Control':'public, max-age=300'}})));
+    // Step 3: RFA projection (3 years) — NO wear-and-tear (no contract signed yet = no risk)
+    const yosAtEnd = c.yos + (effectiveEnd - 2025);
+    const isRFA = yosAtEnd <= 4 && surplus26 > 0;
+    if (isRFA) {
+      const rfaStartYear = effectiveEnd + 1;
+      const yosAtSigning = yosAtEnd + 1;
+      const maxPct = maxPctByYOS(yosAtSigning);
+      const startCap = CAP_PROJ[rfaStartYear];
+      if (startCap) {
+        let newSal = Math.round(Math.min(capPct, maxPct) * startCap);
+        for (let y = 0; y < 3; y++) {
+          const yr = rfaStartYear + y;
+          const projCap = CAP_PROJ[yr];
+          if (!projCap) break;
+          const projVal = Math.round(capPct * projCap);
+          const surp = projVal - newSal;
+          tvSum += surp;
+          p.rfaYears.push({ year: yr, salary: newSal, projVal, surplus: Math.round(surp), status: 'RFA PROJ', wt: null });
+          newSal = Math.round(newSal * 1.08);
         }
-        return new Response(assembled, {headers:{...HTML_HEADERS,'Content-Security-Policy':"default-src 'self' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src * data:; connect-src 'self' https://sheets.googleapis.com https://*.googleusercontent.com https://raw.githubusercontent.com https://cdn.nba.com https://hoopsmatic.com https://docs.google.com https://flagcdn.com https://aderoa.github.io https://api.github.com; frame-src https://hoopsmatic.com;"}});
-      } catch(err) { return safeError('Worker error loading Roster Manager'); }
+      }
     }
 
-    // === CONTRACTS ===
-    if (url.pathname === '/contracts') {
-      try {
-        const cache = caches.default, ck = new Request('https://hoopsmatic.com/_page_cache/contracts');
-        let assembled = null;
-        if (!url.searchParams.has('nocache')) { const c = await cache.match(ck); if (c) assembled = await c.text(); }
-        if (!assembled) {
-          const STATS_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vS76TFTnuKfq8d_bHeM6lF06zCzMisiytTbdIA0i0woFNrlO5b4NwdGpmYG1wtVeu_EvMjYexWFP5vA/pub?gid=1181534071&single=true&output=csv';
-          const [htmlR, csvC, csvR, csvD, csvS] = await Promise.all([
-            fetch(CONTRACTS_HTML_URL+'?t='+Date.now(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'*/*'}}),
-            fetchSheetAsCsv(MAIN_SHEET,'Sheet6',env), fetchSheetAsCsv(MAIN_SHEET,'Sheet1',env),
-            fetchSheetAsCsv(MAIN_SHEET,'Sheet4',env), fetch(STATS_URL,{headers:{'User-Agent':'Mozilla/5.0'}}).catch(()=>null),
-          ]);
-          if (!htmlR.ok) return safeError('Failed to fetch Contracts',502);
-          let html = stripCF(await htmlR.text());
-          html = html.replace('<style>', `<style>\n.header{padding:1.5rem 2rem 0.75rem!important;}.header .tag{color:var(--accent)!important;background:rgba(59,130,246,0.08)!important;}\n`);
-          html = injectNav(html, 'contracts'); html = injectOG(html, 'contracts');
-          let inj = '<script>';
-          if (csvC) inj += 'window.__CSV_CONTRACTS__="'+btoa(unescape(encodeURIComponent(csvC)))+'";';
-          if (csvR) inj += 'window.__CSV_ROSTER__="'+btoa(unescape(encodeURIComponent(csvR)))+'";';
-          if (csvD) inj += 'window.__CSV_DRAFT__="'+btoa(unescape(encodeURIComponent(csvD)))+'";';
-          if (csvS && csvS.ok) { try { const st=await csvS.text(), sl=st.split('\n').map(l=>l.replace(/\r$/,'')); let si=-1; for(let i=0;i<Math.min(sl.length,5);i++)if(sl[i].includes('PLAYER_NAME')){si=i;break;} if(si>=0){const sh=sl[si].split(','),ci={};sh.forEach((h,j)=>{ci[h.trim()]=j});const sa=[];for(let i=si+1;i<sl.length;i++){const c=sl[i].split(','),nm=(c[ci.PLAYER_NAME]||'').trim();if(!nm)continue;sa.push({name:nm,team:(c[ci.TEAM_ABBREVIATION]||'').trim(),gp:parseInt(c[ci.GP])||0,mpg:parseFloat(c[ci.MIN])||0,ppg:parseFloat(c[ci.PTS])||0,rpg:parseFloat(c[ci.REB])||0,apg:parseFloat(c[ci.AST])||0});}inj+='window.__STATS_JSON__='+JSON.stringify(sa)+';';} } catch(e){} }
-          inj += '<'+'/script>\n';
-          html = html.replace(/<script/, inj+'<script');
-          assembled = html;
-          ctx.waitUntil(cache.put(ck, new Response(assembled,{headers:{'Content-Type':'text/html;charset=UTF-8','Cache-Control':'public, max-age=300'}})));
-        }
-        return new Response(assembled, {headers:HTML_HEADERS});
-      } catch(err) { return safeError('Worker error loading Contracts'); }
+    p.contractTV = Math.round(tvSum);
+  }
+
+  // Normalize Trade Values so the league-wide sum = $0
+  // Distribute the offset proportionally by |TV| so big values absorb more
+  const rawTVTotal = roster.reduce((s, p) => s + p.contractTV, 0);
+  if (Math.abs(rawTVTotal) > 0) {
+    const totalAbsTV = roster.reduce((s, p) => s + Math.abs(p.contractTV), 0);
+    if (totalAbsTV > 0) {
+      for (const p of roster) {
+        p.contractTV = Math.round(p.contractTV - rawTVTotal * (Math.abs(p.contractTV) / totalAbsTV));
+      }
+      // Fix rounding residual on largest absolute TV player
+      const finalSum = roster.reduce((s, p) => s + p.contractTV, 0);
+      if (finalSum !== 0) {
+        const maxP = roster.reduce((a, b) => Math.abs(a.contractTV) > Math.abs(b.contractTV) ? a : b);
+        maxP.contractTV -= finalSum;
+      }
     }
+  }
+  // Pool = sum of capped real values
+  const cappedPool = roster.reduce((s,p) => s + p.tradeValue, 0);
+  // Rank by uncapped (real) value
+  roster.sort((a,b) => b.uncappedTV - a.uncappedTV);
+  roster.forEach((p,i) => p.rank = i+1);
 
-    // === DEPTH CHARTS — all 30 teams, Presto-style ===
-    if (url.pathname === '/depth-charts') {
-      try {
-        const cache = caches.default, ck = new Request('https://hoopsmatic.com/_page_cache/depth-charts');
-        let assembled = null;
-        if (!url.searchParams.has('nocache')) { const c = await cache.match(ck); if (c) assembled = await c.text(); }
-        if (!assembled) {
-          const [htmlR, orderR] = await Promise.all([
-            fetch(DEPTH_HTML_URL+'?t='+Date.now(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'*/*'}}),
-            fetch('https://raw.githubusercontent.com/aderoa/DepthCharts/main/order.json?t='+Date.now(),{headers:{'User-Agent':'Mozilla/5.0'}}).catch(()=>null),
-          ]);
-          if (!htmlR.ok) return safeError('Failed to fetch Depth Charts',502);
-          let html = stripCF(await htmlR.text());
-          html = html.replace('<head>', `<head>\n<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">`);
-          html = html.replace('<style>', `<style>\n:root{--bg:#f8f9fa!important;--surface:#fff!important;--surface2:#f3f4f6!important;--border:#e2e5e9!important;--text:#1a1a2e!important;--text2:#5a6070!important;--text-muted:#8892a6!important;--accent:#3b82f6!important;--accent-dim:rgba(59,130,246,0.07)!important;--green:#16a34a!important;--red:#dc2626!important;--orange:#f59e0b!important;}\nbody{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif!important;background:var(--bg)!important;color:var(--text)!important;}\n`);
-          let ds = '<script>';
-          if (orderR && orderR.ok) {
-            try {
-              const orderData = JSON.parse(await orderR.text());
-              const POSITIONS = ['PG','SG','SF','PF','C'];
-              for (const team of Object.keys(orderData)) {
-                const td = orderData[team];
-                const allSec = {};
-                for (const pos of POSITIONS) {
-                  const arr = td[pos] || [];
-                  const secs = [[]];
-                  for (const item of arr) {
-                    if (item === '__SEPARATOR__') secs.push([]);
-                    else if (item !== '__SPACER__') secs[secs.length-1].push(item);
-                  }
-                  while (secs.length > 0 && secs[secs.length-1].length === 0) secs.pop();
-                  allSec[pos] = secs;
-                }
-                const maxSec = Math.max(...POSITIONS.map(p => allSec[p].length), 1);
-                for (const pos of POSITIONS) while (allSec[pos].length < maxSec) allSec[pos].push([]);
-                for (const pos of POSITIONS) {
-                  const out = [];
-                  for (let si = 0; si < maxSec; si++) {
-                    const maxD = Math.max(...POSITIONS.map(p => (allSec[p][si]||[]).length), 0) || 1;
-                    const sec = allSec[pos][si] || [];
-                    out.push(...sec);
-                    for (let pad = sec.length; pad < maxD; pad++) out.push('__SPACER__');
-                    if (si < maxSec - 1) out.push('__SEPARATOR__');
-                  }
-                  td[pos] = out;
-                }
-              }
-              const cleanB64 = btoa(unescape(encodeURIComponent(JSON.stringify(orderData))));
-              ds += 'window.__DC_ORDER__=JSON.parse(decodeURIComponent(escape(atob("'+cleanB64+'"))));';
-            } catch(e) {}
-          }
-          ds += '<'+'/script>\n';
-          html = html.replace(/<script/, ds+'<script');
-          html = html.replace(
-            "const exportParam = params.get('export');",
-            "const exportParam = 'all'; // HoopsMatic: force export-all mode"
-          );
-          html = html.replace(
-            "const orderURL = new URL('order.json', window.location.href.split('?')[0]).href;",
-            "const orderURL = 'https://raw.githubusercontent.com/aderoa/DepthCharts/main/order.json';"
-          );
-          html = html.replace(
-            'fetch(orderURL)',
-            "(window.__DC_ORDER__?Promise.resolve({ok:true,json:()=>Promise.resolve(window.__DC_ORDER__)}):fetch(orderURL))"
-          );
-          html = injectNav(html, 'depth'); html = injectOG(html, 'depth');
-          assembled = html;
-          ctx.waitUntil(cache.put(ck, new Response(assembled,{headers:{'Content-Type':'text/html;charset=UTF-8','Cache-Control':'public, max-age=300'}})));
-        }
-        return new Response(assembled, {headers:HTML_HEADERS});
-      } catch(err) { return safeError('Worker error loading Depth Charts'); }
-    }
-
-    // === INJURIES ===
-    if (url.pathname === '/injuries') {
-      try {
-        const cache = caches.default, ck = new Request('https://hoopsmatic.com/_page_cache/injuries');
-        let assembled = null;
-        if (!url.searchParams.has('nocache')) { const c = await cache.match(ck); if (c) assembled = await c.text(); }
-        if (!assembled) {
-          const [htmlR, injCsv, rosterCsv, jsonR] = await Promise.all([
-            fetch(INJURIES_HTML_URL+'?t='+Date.now(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'*/*'}}),
-            fetchSheetAsCsv(INJ_SHEET,'Injuries',env), fetchSheetAsCsv(MAIN_SHEET,'Sheet1',env),
-            fetch('https://raw.githubusercontent.com/aderoa/Injuries/main/injuries.json?t='+Date.now(),{headers:{'User-Agent':'Mozilla/5.0'}}).catch(()=>null),
-          ]);
-          if (!htmlR.ok) return safeError('Failed to fetch Injuries',502);
-          let html = stripCF(await htmlR.text());
-          html = html.replace('<head>', `<head>\n<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">`);
-          html = html.replace('<style>', `<style>\n:root{--bg:#f8f9fa!important;--surface:#fff!important;--surface2:#f3f4f6!important;--border:#e2e5e9!important;--text:#1a1a2e!important;--text2:#5a6070!important;--accent:#3b82f6!important;--out:#dc2626!important;--doubtful:#ea580c!important;--questionable:#d97706!important;--probable:#16a34a!important;--available:#059669!important;--modified-bg:rgba(59,130,246,0.04)!important;--modified-border:rgba(59,130,246,0.15)!important;}\nbody{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif!important;}\n`);
-          let ds = '<script>';
-          if (injCsv) ds += 'window.__INJ_CSV__="'+btoa(unescape(encodeURIComponent(injCsv)))+'";';
-          if (rosterCsv) {
-            ds += 'window.__INJ_ROSTER__="'+btoa(unescape(encodeURIComponent(rosterCsv)))+'";';
-            try {
-              const rows=[],txt=rosterCsv; let cur='',inQ=false,row=[];
-              for(let i=0;i<txt.length;i++){const c=txt[i];if(c==='"'){if(inQ&&txt[i+1]==='"'){cur+='"';i++}else inQ=!inQ}else if(c===','&&!inQ){row.push(cur.trim());cur=''}else if((c==='\n'||c==='\r')&&!inQ){if(c==='\r'&&txt[i+1]==='\n')i++;row.push(cur.trim());if(row.length>1||row[0])rows.push(row);row=[];cur=''}else cur+=c}
-              row.push(cur.trim());if(row.length>1||row[0])rows.push(row);
-              if(rows.length>1){const hdr=rows[0].map(h=>h.toUpperCase()),pi=hdr.indexOf('PLAYER'),hi=hdr.indexOf('HEADSHOT');
-              if(pi>=0&&hi>=0){const hsMap={};for(let i=1;i<rows.length;i++){const nm=(rows[i][pi]||'').trim(),hs=(rows[i][hi]||'').trim();if(nm&&hs&&hs.startsWith('http'))hsMap[nm]=hs;}ds+='window.__HEADSHOTS__='+JSON.stringify(hsMap)+';';}}
-            } catch(e){}
-          }
-          if (jsonR && jsonR.ok) { try { ds += 'window.__INJ_JSON__=JSON.parse(decodeURIComponent(escape(atob("'+btoa(unescape(encodeURIComponent(await jsonR.text())))+'"))));'; } catch(e){} }
-          ds += '<'+'/script>\n';
-          html = html.replace(/<script/, ds+'<script');
-          html = html.replace("const JSON_URL = 'injuries.json';", "const JSON_URL = 'https://raw.githubusercontent.com/aderoa/Injuries/main/injuries.json';");
-          html = html.replace('fetchSheets(CSV_URL),', '(window.__INJ_CSV__?Promise.resolve({ok:true,text:()=>Promise.resolve(decodeURIComponent(escape(atob(window.__INJ_CSV__))))}):fetchSheets(CSV_URL)),');
-          html = html.replace('fetchSheets(ROSTER_CSV_URL),', '(window.__INJ_ROSTER__?Promise.resolve({ok:true,text:()=>Promise.resolve(decodeURIComponent(escape(atob(window.__INJ_ROSTER__))))}):fetchSheets(ROSTER_CSV_URL)),');
-          html = html.replace("fetch(JSON_URL + '?t=' + Date.now())", "(window.__INJ_JSON__?Promise.resolve({ok:true,json:()=>Promise.resolve(window.__INJ_JSON__)}):fetch(JSON_URL+'?t='+Date.now()))");
-          html = html.replace("const isAdmin = new URLSearchParams(window.location.search).has('admin');", "const isAdmin = false;");
-          html = html.replace(".filter(e => !(e.status === 'Available' && e.prevStatus === 'Available'))","");
-          html = html.replace("document.getElementById('preview').innerHTML = '<p style=\"color:#888;text-align:center;padding:2rem;\">Preview disabled for performance. Use the copy buttons above.</p>';", "var preview = document.getElementById('preview'); if (idx === -1) { preview.innerHTML = sectionsHTML.join('<br>'); } else if (sectionsHTML[idx]) { preview.innerHTML = sectionsHTML[idx]; } if (window._hmEnhanceTables) setTimeout(window._hmEnhanceTables, 100);");
-          html = html.replace(/const API_KEY = '[^']+';/, "const API_KEY = '';");
-          html = html.replace(/const INJ_SHEETS_ID = '[^']+';/, "const INJ_SHEETS_ID = '';");
-          html = html.replace(/const ROSTER_SHEETS_ID = '[^']+';/, "const ROSTER_SHEETS_ID = '';");
-          html = html.replace(/const CSV_URL = [^;]+;/, "const CSV_URL = '/api/inj-csv';");
-          html = html.replace(/const ROSTER_CSV_URL = [^;]+;/, "const ROSTER_CSV_URL = '/api/roster';");
-
-          const safeNavJson = JSON.stringify(navBar('injuries')).replace(/</g,'\\u003c').replace(/\//g,'\\u002f');
-          const hmScript = `<script>
-(function(){
-var navHtml = ${safeNavJson};
-function fixPage() {
-  if (!document.getElementById('hm-nav-root')) { var d=document.createElement('div');d.id='hm-nav-root';d.innerHTML=navHtml;document.body.insertBefore(d,document.body.firstChild); }
-  var tb=document.getElementById('reportToolbar');if(tb)tb.style.display='none';
-  var h1=document.querySelector('.admin-header h1');if(h1)h1.innerHTML='🏥 NBA Injury Report';
-  window._hmHeadshots=window.__HEADSHOTS__||{};
-  window._hmEnhanceTables=function(){document.querySelectorAll('.inj-tbl td strong').forEach(function(el){if(el.dataset.hm)return;el.dataset.hm='1';var name=el.textContent.trim();if(!name||name.length<3)return;var tbl=el.closest('table');var h2=tbl?tbl.previousElementSibling:null;if(h2&&h2.textContent&&h2.textContent.toLowerCase().includes('salary per team'))return;var hs=window._hmHeadshots[name];var img=hs?'<img src="'+hs+'" class="hm-hs" onerror="this.style.display=\\'none\\'">':'';el.innerHTML=img+'<a class="hm-player-link" onclick="event.preventDefault();event.stopPropagation();window._hmShowCard(\\''+name.replace(/'/g,"\\\\\\\\'")+'\\')">'+name+'</a>';});document.querySelectorAll('.inj-tbl').forEach(function(tbl){var h2=tbl.previousElementSibling;if(!h2)return;var title=(h2.textContent||'').toLowerCase();if(!title.includes('salary per team')&&!title.includes('highest-paid'))return;if(tbl.querySelector('.hm-rank'))return;var thead=tbl.querySelector('thead tr');if(thead){var th=document.createElement('th');th.textContent='#';th.style.cssText='width:24px;text-align:center;';thead.insertBefore(th,thead.firstChild);}var rank=1;tbl.querySelectorAll('tbody tr').forEach(function(row){var td=document.createElement('td');td.innerHTML='<span class="hm-rank">'+rank+'</span>';td.style.textAlign='center';row.insertBefore(td,row.firstChild);rank++;});});document.querySelectorAll('.inj-total img').forEach(function(img){img.style.width='24px';img.style.height='24px';});};
-  window._hmShowCard=function(name){var ov=document.createElement('div');ov.className='hm-pp-overlay';ov.onclick=function(e){if(e.target===ov){document.body.removeChild(ov);document.body.style.overflow='';}};var fr=document.createElement('iframe');fr.className='hm-pp-frame';fr.src='/contracts#'+encodeURIComponent(name);ov.appendChild(fr);document.body.appendChild(ov);document.body.style.overflow='hidden';document.addEventListener('keydown',function handler(e){if(e.key==='Escape'){if(ov.parentNode){document.body.removeChild(ov);document.body.style.overflow='';}document.removeEventListener('keydown',handler);}});};
-  var s=document.createElement('style');
-  s.textContent='#hm-nav-root{position:sticky;top:0;z-index:9999;}.report-container{max-width:1400px!important;padding:16px 2rem 80px!important;}.admin-header{border-bottom:none!important;padding:1.5rem 0 0.5rem!important;}.admin-header h1{font-family:"DM Sans",-apple-system,BlinkMacSystemFont,sans-serif!important;font-size:1.5rem!important;font-weight:800!important;letter-spacing:-0.02em!important;color:#1a1a2e!important;}.tab-bar{display:flex!important;gap:0.6rem!important;margin-bottom:1.25rem!important;}.tab-bar button{font-family:"DM Sans",sans-serif!important;font-size:0.78rem!important;font-weight:600!important;padding:0.55rem 1rem!important;border-radius:8px!important;border:1px solid #e2e5e9!important;background:#fff!important;color:#5a6070!important;cursor:pointer!important;transition:all 0.15s!important;}.tab-bar button:hover{border-color:#3b82f6!important;color:#3b82f6!important;}.tab-bar button.active{background:rgba(59,130,246,0.07)!important;border-color:#3b82f6!important;color:#3b82f6!important;}.inj-tbl{width:100%;border-collapse:collapse;font-size:0.82rem;font-family:"DM Sans",-apple-system,sans-serif;}.inj-tbl thead tr{background:transparent;}.inj-tbl th{background:#f3f4f6;color:#8892a6;font-family:"JetBrains Mono","DM Mono",monospace;font-size:0.62rem;font-weight:500;text-transform:uppercase;letter-spacing:0.06em;padding:0.6rem 0.5rem;text-align:left;border:none;border-bottom:1px solid #e2e5e9;white-space:nowrap;height:auto;}.inj-tbl td{border:none;border-bottom:1px solid #e2e5e9;padding:0.5rem 0.5rem;text-align:left;height:44px;vertical-align:middle;font-family:"DM Sans",-apple-system,sans-serif;}.inj-tbl td strong{font-family:"DM Sans",-apple-system,sans-serif!important;font-weight:600!important;}.inj-tbl tbody tr{transition:background 0.12s;}.inj-tbl tbody tr:hover{background:rgba(59,130,246,0.03);}.inj-tbl th.logo-col,.inj-tbl td.logo-col{width:36px;min-width:36px;text-align:center;padding:0.5rem 0.25rem;}.inj-logo{width:24px!important;height:24px!important;vertical-align:middle;}.inj-total td{background:#f3f4f6!important;font-weight:700;}h2{font-family:"DM Sans",-apple-system,sans-serif!important;font-size:1.1rem!important;font-weight:700!important;color:#1a1a2e!important;margin:1.5rem 0 0.6rem!important;}.hm-player-link{color:inherit;text-decoration:none;font-weight:600;cursor:pointer;font-family:"DM Sans",sans-serif;}.hm-player-link:hover{color:#3b82f6;}.hm-rank{font-size:.65rem;color:#5a6070;font-weight:600;min-width:20px;display:inline-block;text-align:center;}.hm-hs{width:24px;height:18px;border-radius:3px;object-fit:cover;vertical-align:middle;margin-right:4px;}.hm-pp-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:10001;display:flex;justify-content:center;padding:2rem;overflow-y:auto;}.hm-pp-frame{border:none;max-width:740px;width:100%;height:90vh;border-radius:12px;background:#fff;box-shadow:0 12px 40px rgba(0,0,0,.2);}';
-  document.head.appendChild(s);
-  var rt=0,tm=setInterval(function(){var tbls=document.querySelectorAll('.inj-tbl');if(tbls.length>0&&tbls[0].querySelector('tbody tr')){clearInterval(tm);window._hmEnhanceTables();}if(++rt>40)clearInterval(tm);},500);
+  return { players: roster, totalSalaryPool: cappedPool, exponent: EXPONENT, avgAge };
 }
-var obs=new MutationObserver(function(){setTimeout(fixPage,50)});
-document.addEventListener('DOMContentLoaded',function(){fixPage();obs.observe(document.body,{childList:true});});
-})();
-</script>`;
-          html = html.replace('</head>', hmScript+'</head>');
-          html = injectOG(html, 'injuries');
-          assembled = html;
-          ctx.waitUntil(cache.put(ck, new Response(assembled,{headers:{'Content-Type':'text/html;charset=UTF-8','Cache-Control':'public, max-age=300'}})));
-        }
-        return new Response(assembled, {headers:HTML_HEADERS});
-      } catch(err) { return safeError('Worker error loading Injuries'); }
-    }
 
-    // === DEFENSIVE RANKINGS ===
-    if (url.pathname === '/defense') {
-      try {
-        const cache = caches.default, ck = new Request('https://hoopsmatic.com/_page_cache/defense');
-        let assembled = null;
-        if (!url.searchParams.has('nocache')) { const c = await cache.match(ck); if (c) assembled = await c.text(); }
-        if (!assembled) {
-          const [htmlR, dataR] = await Promise.all([
-            fetch(DEFENSE_HTML_URL+'?t='+Date.now(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'*/*'}}),
-            fetch(sheetsURL(DEF_SHEET,'Defensive_Rankings',env),{headers:{'User-Agent':'Mozilla/5.0'}}).catch(()=>null),
-          ]);
-          if (!htmlR.ok) return safeError('Failed to fetch Defense',502);
-          let html = stripCF(await htmlR.text());
-          html = html.replace('<head>', `<head>\n<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">`);
-          html = html.replace('<style>', `<style>\n:root{--bg:#f8f9fa!important;--surface:#ffffff!important;--card:#ffffff!important;--border:#e2e5e9!important;--border-light:#eef0f2!important;--text:#1a1a2e!important;--text-secondary:#5a6070!important;--text-muted:#8892a6!important;--green:#16a34a!important;--red:#dc2626!important;}\n.header{padding:1.5rem 2rem 0.75rem!important;}.header::before{display:none!important;}.header-brand h1{color:var(--text)!important;-webkit-text-fill-color:var(--text)!important;}.header-brand .tag{color:var(--accent)!important;background:rgba(59,130,246,0.08)!important;}.header-subtitle{color:var(--text-secondary)!important;}.stats-bar{margin:1rem auto 0!important;max-width:1400px!important;padding:0 2rem!important;}\n.period-bar{display:flex;gap:0.5rem;}.period-btn{font-family:inherit;font-size:0.78rem;font-weight:600;padding:0.5rem 1rem;border-radius:8px;border:1px solid #e2e5e9;background:#fff;color:#5a6070;cursor:pointer;transition:all 0.15s;}.period-btn:hover{border-color:#3b82f6;color:#3b82f6;}.period-btn.active{background:rgba(59,130,246,0.07);border-color:#3b82f6;color:#3b82f6;}\n`);
-          if (dataR && dataR.ok) { const dt = await dataR.text(); html = html.replace(/<script/, '<script>window.__DEF_DATA__='+dt+';<'+'/script>\n<script'); }
-          html = html.replace(/const STATS_ID = '[^']+';/, "const STATS_ID = '';");
-          html = html.replace(/const API_KEY\s*= '[^']+';/, "const API_KEY = '';");
-          html = html.replace("const makeURL  = tab => `${BASE_URL}/${encodeURIComponent(tab)}?key=${API_KEY}`;", "const makeURL = tab => '/api/defense-data';");
-          html = html.replace("const res = await fetch(makeURL('Defensive_Rankings'));", "const res = window.__DEF_DATA__ ? {ok:true,json:()=>Promise.resolve(window.__DEF_DATA__)} : await fetch(makeURL('Defensive_Rankings'));");
-          html = html.replace(/<span class="tag">v[\d.]+ — [^<]+<\/span>/, '');
-          html = html.replace('<div class="header-subtitle">Archetype-weighted composite score with team defense anchor bonus</div>', '');
-          html = html.replace("document.getElementById('statDate').innerHTML = `<span class=\"unit\">${appData.lastUpdated}</span>`;", "{ let _t = appData.lastUpdated; try { const d = new Date(_t.replace(' ','T')+'Z'); _t = d.toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',hour12:true})+' ET'; } catch(e){} document.getElementById('statDate').innerHTML = `<span class=\"unit\">${_t}</span>`; }");
-          html = injectNav(html, 'defense'); html = injectOG(html, 'defense');
-          // Inject SC/MPG export: after table renders, POST computed data to cache
-          html = html.replace('</body>', `<script>(function(){function ex(){var t=document.querySelector('table');if(!t){setTimeout(ex,2000);return;}var rows=t.querySelectorAll('tbody tr');if(rows.length<20){setTimeout(ex,2000);return;}var d={};rows.forEach(function(r){var c=r.querySelectorAll('td');if(c.length>=14){var n=(c[1]||{}).textContent;var v=parseFloat((c[c.length-1]||{}).textContent);if(n&&!isNaN(v)&&v>0)d[n.trim()]=v;}});if(Object.keys(d).length>50){fetch('/api/defense-cache',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}).then(function(){console.log('[DefExport] Cached '+Object.keys(d).length+' players')}).catch(function(e){console.warn('[DefExport]',e)});}else{setTimeout(ex,3000);}}setTimeout(ex,4000);})();</script></body>`);
-          assembled = html;
-          ctx.waitUntil(cache.put(ck, new Response(assembled,{headers:{'Content-Type':'text/html;charset=UTF-8','Cache-Control':'public, max-age=300'}})));
-        }
-        return new Response(assembled, {headers:HTML_HEADERS});
-      } catch(err) { return safeError('Worker error loading Defense'); }
-    }
+let appData = null;
+let snapshot = null;
 
-    // === REAL VALUE ===
-    if (url.pathname === '/real-value') {
-      try {
-        const cache = caches.default, ck = new Request('https://hoopsmatic.com/_page_cache/real-value');
-        let assembled = null;
-        if (!url.searchParams.has('nocache')) { const c = await cache.match(ck); if (c) assembled = await c.text(); }
-        if (!assembled) {
-          const htmlR = await fetch(RV_HTML_URL+'?t='+Date.now(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'*/*'}});
-          if (!htmlR.ok) return safeError('Failed to fetch Real Value',502);
-          let html = stripCF(await htmlR.text());
-          html = injectNav(html, 'realvalue'); html = injectOG(html, 'realvalue');
-          assembled = html;
-          ctx.waitUntil(cache.put(ck, new Response(assembled,{headers:{'Content-Type':'text/html;charset=UTF-8','Cache-Control':'public, max-age=300'}})));
-        }
-        return new Response(assembled, {headers:HTML_HEADERS});
-      } catch(err) { return safeError('Worker error loading Real Value'); }
-    }
-
-    // === DRAFT PREDICTOR ===
-    if (url.pathname === '/draft') {
-      try {
-        const cache = caches.default, ck = new Request('https://hoopsmatic.com/_page_cache/draft');
-        let assembled = null;
-        if (!url.searchParams.has('nocache')) { const c = await cache.match(ck); if (c) assembled = await c.text(); }
-        if (!assembled) {
-          const htmlR = await fetch(DRAFT_HTML_URL+'?t='+Date.now(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'*/*'}});
-          if (!htmlR.ok) return safeError('Failed to fetch Draft',502);
-          let html = stripCF(await htmlR.text());
-          html = html.replace('2025 NBA Draft', '2026 NBA Draft');
-          html = html.replace(/const SHEET_ID = '[^']+';[\s\S]*?const CSV_URL = `[^`]+`;/, "const CSV_URL = '/api/draft-csv';");
-          html = html.replace('<head>', `<head>\n<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">`);
-          const draftOverride = `
-  var _HM_ISO={'United States':'US','France':'FR','Australia':'AU','Canada':'CA','Spain':'ES','Germany':'DE','Serbia':'RS','Greece':'GR','Italy':'IT','Nigerian':'NG','Nigeria':'NG','Croatia':'HR','Lithuania':'LT','Bahamas':'BS','Benin':'BJ','DR Congo':'CD','Dominican Republic':'DO','Estonia':'EE','Finland':'FI','Israel':'IL','Mexico':'MX','Senegal':'SN','Brazil':'BR','Cameroon':'CM','Japan':'JP','South Sudan':'SS','New Zealand':'NZ','Montenegro':'ME','Turkey':'TR','UK':'GB','United Kingdom':'GB','Belgium':'BE','Ivory Coast':'CI','Slovenia':'SI','Latvia':'LV','Jamaica':'JM','Angola':'AO','Mali':'ML','Poland':'PL','China':'CN','Philippines':'PH','Czech Republic':'CZ','Czechia':'CZ','Austria':'AT','Bosnia':'BA','Bosnia and Herzegovina':'BA','Georgia':'GE','Sweden':'SE','Switzerland':'CH','Argentina':'AR','Colombia':'CO','Puerto Rico':'PR','Haiti':'HT','Egypt':'EG','Ukraine':'UA','Russia':'RU','South Korea':'KR','Taiwan':'TW','Denmark':'DK','Norway':'NO','Romania':'RO','Hungary':'HU','Portugal':'PT','Ireland':'IE','Netherlands':'NL','South Africa':'ZA','Ghana':'GH','Congo':'CG','Guinea':'GN','Gabon':'GA','Morocco':'MA','Tunisia':'TN','Algeria':'DZ','Kenya':'KE','India':'IN','Iran':'IR','Lebanon':'LB','Trinidad and Tobago':'TT','US Virgin Islands':'VI','Barbados':'BB','US':'US'};
-  function _hmFlag(c){var code=_HM_ISO[c];if(!code)return'';return'<img src="https://flagcdn.com/w40/'+code.toLowerCase()+'.png" width="20" height="15" style="vertical-align:middle;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,0.08)" alt="'+code+'">';}
-  var _hmBioLookup={}, _hmSheetOrder=[];
-  var _origRender=render;
-  render=function(data){
-    var players=data.players,pickTeamMap=data.pickTeamMap,availableSet=data.availableSet;
-    if(!players.length){document.getElementById('error').textContent='No draft data found.';document.getElementById('error').style.display='block';return;}
-    document.getElementById('statsBar').style.display='none';
-    var wb=document.getElementById('weightsBar');if(wb)wb.style.display='none';
-    var html='<table><thead><tr><th class="col-rank" data-col="finalRank" data-type="num">Pick</th><th data-col="team" data-type="str">Team</th><th></th><th class="col-player" data-col="name" data-type="str" style="text-align:left">Player</th><th>Pos</th><th style="text-align:left">School</th><th style="text-align:left">Age</th></tr></thead><tbody>';
-    players.forEach(function(p){if(!p.finalRank||p.finalRank>60)return;var bio=_hmBioLookup[p.name]||{};var flag=_hmFlag(bio.country)||'';var tier=p.finalRank<=5?'top5':p.finalRank<=10?'top10':p.finalRank<=14?'lottery':p.finalRank<=20?'top20':p.finalRank<=30?'first-round':'second-round';var tierRow='tier-'+(p.finalRank<=5?'5':p.finalRank<=10?'10':p.finalRank<=14?'lottery':p.finalRank<=20?'20':p.finalRank<=30?'first':'second');var teamForPick=pickTeamMap[p.finalRank]||'';
-    html+='<tr class="'+tierRow+'"><td class="rank-cell '+tier+'">'+p.finalRank+'</td><td style="font-family:\\'JetBrains Mono\\',monospace;font-size:0.75rem;font-weight:600;color:var(--text-secondary)">'+teamForPick+'</td><td style="text-align:center;padding:0.3rem 0.15rem;width:28px">'+flag+'</td><td style="text-align:left;padding-right:0.25rem"><span class="player-name">'+p.name+'</span></td><td style="font-family:\\'JetBrains Mono\\',monospace;font-size:0.72rem;color:var(--text-secondary);padding:0.4rem 0.5rem">'+(bio.position||'')+'</td><td style="font-size:0.8rem;color:var(--text-secondary);text-align:left">'+(bio.college||'')+'</td><td style="font-family:\\'JetBrains Mono\\',monospace;font-size:0.72rem;color:var(--text-muted);text-align:left;white-space:nowrap">'+(bio.ageText||'')+'</td></tr>';});
-    html+='</tbody></table>';document.getElementById('tableWrapper').innerHTML=html;document.getElementById('tableWrapper').style.display='block';
-    var undraftedNames=new Set();players.forEach(function(p){if(availableSet.has(p.name))undraftedNames.add(p.name);});if(undraftedNames.size===0)return;
-    var ordered=[];_hmSheetOrder.forEach(function(name){if(undraftedNames.has(name)){ordered.push(name);undraftedNames.delete(name);}});undraftedNames.forEach(function(name){ordered.push(name);});
-    var uhtml='<table style="width:100%"><thead><tr><th></th><th style="text-align:left">Player</th><th>Pos</th><th style="text-align:left">School</th><th style="text-align:left">Age</th></tr></thead><tbody>';
-    ordered.forEach(function(name){var bio=_hmBioLookup[name]||{};var flag=_hmFlag(bio.country)||'';uhtml+='<tr><td style="text-align:center;padding:0.3rem 0.15rem;width:28px">'+flag+'</td><td style="text-align:left;padding-right:0.25rem"><span class="player-name">'+name+'</span></td><td style="font-family:\\'JetBrains Mono\\',monospace;font-size:0.72rem;color:var(--text-secondary);padding:0.4rem 0.5rem">'+(bio.position||'')+'</td><td style="font-size:0.8rem;color:var(--text-secondary);text-align:left">'+(bio.college||'')+'</td><td style="font-family:\\'JetBrains Mono\\',monospace;font-size:0.72rem;color:var(--text-muted);text-align:left;white-space:nowrap">'+(bio.ageText||'')+'</td></tr>';});
-    uhtml+='</tbody></table>';var grid=document.getElementById('undraftedGrid');grid.className='table-wrapper';grid.innerHTML=uhtml;document.getElementById('undraftedBoard').style.display='block';
-  };
-  var _origInit=init;
-  init=async function(){try{var response=await fetch(CSV_URL);if(!response.ok)throw new Error('Failed to fetch data');var text=await response.text();var rows=parseCSV(text);if(rows.length>1){for(var i=1;i<rows.length;i++){var bioName=(rows[i][26]||'').trim();if(bioName){_hmBioLookup[bioName]={country:(rows[i][30]||'').trim(),position:(rows[i][36]||'').trim(),college:(rows[i][37]||'').trim(),ageText:(rows[i][34]||'').trim()};}var sheetName=(rows[i][0]||'').trim();if(sheetName)_hmSheetOrder.push(sheetName);}}var data=computeAggregate(text);document.getElementById('loading').style.display='none';render(data);}catch(err){console.error('Error:',err);document.getElementById('loading').style.display='none';document.getElementById('error').textContent='Error loading draft data: '+err.message;document.getElementById('error').style.display='block';}};
-`;
-          html = html.replace('    init();', draftOverride + '\n    init();');
-          html = html.replace('<style>', `<style>\n:root{--bg-primary:#f8f9fa!important;--bg-card:#fff!important;--bg-row-alt:#fafbfc!important;--bg-hover:rgba(59,130,246,0.03)!important;--border:#e2e5e9!important;--text-primary:#1a1a2e!important;--text-secondary:#5a6070!important;--text-muted:#8892a6!important;--accent-gold:#3b82f6!important;--accent-green:#16a34a!important;--accent-blue:#3b82f6!important;--accent-red:#dc2626!important;--accent-purple:#8b5cf6!important;--top5:#f59e0b!important;--top10:#3b82f6!important;--top20:#16a34a!important;--lottery:#8b5cf6!important;--first-round:#8892a6!important;--second-round:#8892a6!important;}\nbody{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif!important;background:var(--bg-primary)!important;color:var(--text-primary)!important;}body::before{display:none!important;}h1{font-size:1.5rem!important;font-weight:800!important;color:var(--text-primary)!important;letter-spacing:-0.02em!important;}h1 span{color:var(--accent-blue)!important;}header{justify-content:flex-start!important;}.header-tag{color:var(--accent-blue)!important;background:rgba(59,130,246,0.07)!important;border-color:rgba(59,130,246,0.15)!important;font-family:'JetBrains Mono',monospace!important;}.subtitle{color:var(--text-secondary)!important;}.stat-item{background:var(--bg-card)!important;border:1px solid var(--border)!important;border-radius:10px!important;}.stat-value{color:var(--accent-blue)!important;}.stat-label{color:var(--text-muted)!important;}.weights-bar{background:var(--bg-card)!important;border:1px solid var(--border)!important;}.table-wrapper{background:var(--bg-card)!important;border:1px solid var(--border)!important;border-radius:10px!important;}thead th{background:#f3f4f6!important;border-bottom:1px solid var(--border)!important;color:var(--text-muted)!important;font-family:'JetBrains Mono',monospace!important;}tbody tr{border-bottom:1px solid var(--border)!important;}tbody tr:hover{background:rgba(59,130,246,0.03)!important;}tbody tr:nth-child(even){background:var(--bg-row-alt)!important;}.player-name{color:var(--text-primary)!important;font-weight:600!important;font-size:0.85rem!important;}.undrafted-board{background:var(--bg-card)!important;border:1px solid var(--border)!important;border-radius:10px!important;}.undrafted-grid.table-wrapper{display:block!important;}.stats-bar{display:none!important;}.container{max-width:1400px!important;padding:1.5rem 2rem!important;}table{table-layout:auto!important;width:100%!important;}th.col-rank{width:42px!important;}.table-wrapper{overflow-x:visible!important;}.loading-spinner{border-color:var(--border)!important;border-top-color:var(--accent-blue)!important;}.loading-text{color:var(--text-secondary)!important;}footer{color:var(--text-muted)!important;}footer a{color:var(--accent-blue)!important;}\n`);
-          html = injectNav(html, 'draft'); html = injectOG(html, 'draft');
-          assembled = html;
-          ctx.waitUntil(cache.put(ck, new Response(assembled,{headers:{'Content-Type':'text/html;charset=UTF-8','Cache-Control':'public, max-age=300'}})));
-        }
-        return new Response(assembled, {headers:HTML_HEADERS});
-      } catch(err) { return safeError('Worker error loading Draft'); }
-    }
-
-    // === SALARY SEASON FINDER ===
-    if (url.pathname === '/salary-season-finder') {
-      const SSF_HEADERS = { ...HTML_HEADERS };
-      delete SSF_HEADERS['Content-Security-Policy'];
-      try {
-        const cache = caches.default, ck = new Request('https://hoopsmatic.com/_page_cache/salary-season-finder');
-        let assembled = null;
-        if (!url.searchParams.has('nocache')) { const c = await cache.match(ck); if (c) assembled = await c.text(); }
-        if (!assembled) {
-          const htmlR = await fetch(SSF_HTML_URL+'?t='+Date.now(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'*/*'}});
-          if (!htmlR.ok) return safeError('Failed to fetch SSF',502);
-          let html = stripCF(await htmlR.text());
-          html = html.replace('<head>', `<head>\n  <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">\n  <base href="${SSF_BASE}">`);
-          const historyFix = `<script>
-(function(){
-  var _orig = history.replaceState.bind(history);
-  history.replaceState = function(state, title, url) {
-    try {
-      if (url && typeof url === 'string') {
-        if (url.startsWith('#') || url.startsWith('?') || url.startsWith('/') || !url.includes('://')) {
-          url = '/salary-season-finder' + (url.startsWith('#') || url.startsWith('?') ? '' : '/') + url;
-        }
-        if (url.indexOf('github.io') >= 0) {
-          var u = new URL(url);
-          url = '/salary-season-finder' + (u.hash || '');
-        }
+// Server-side snapshot (daily rotation via Worker)
+async function loadServerSnapshot() {
+  try {
+    const res = await fetch('https://hoopsmatic.com/api/rv-snapshot');
+    if (!res.ok) return;
+    const data = await res.json();
+    // Use yesterday's snapshot for comparison (fall back to today if no yesterday)
+    const prev = data.yesterday || null;
+    if (prev) {
+      snapshot = {};
+      for (const [name, val] of Object.entries(prev)) {
+        if (name.startsWith('_')) continue;
+        snapshot[name] = val;
       }
-      _orig(state, title, url);
-    } catch(e) { /* silently ignore */ }
-  };
-})();
-<` + `/script>`;
-          html = html.replace('<base href=', historyFix + '\n  <base href=');
-          html = injectNav(html, 'salary'); html = injectOG(html, 'salary');
-          const ssfNavScript = `<script>
-(function(){
-  function sp(el, props) {
-    Object.keys(props).forEach(function(k) {
-      el.style.setProperty(k, props[k], 'important');
-    });
-  }
-  function fixNav(){
-    var nav = document.getElementById('hm-nav');
-    if (!nav) return;
-    sp(nav, {
-      'display':'flex','align-items':'center','background':'#fff',
-      'border-bottom':'1px solid #e2e5e9','padding':'0 1.25rem',
-      'position':'sticky','top':'0','z-index':'9999','width':'100%',
-      'box-sizing':'border-box','font-family':'DM Sans,-apple-system,BlinkMacSystemFont,sans-serif',
-      'margin':'0','height':'auto','min-height':'0','gap':'0','overflow-x':'auto'
-    });
-    var brand = nav.querySelector('.hm-nav-brand');
-    if (brand) sp(brand, {
-      'display':'flex','align-items':'center','font-weight':'800',
-      'font-size':'.95rem','color':'#1a1a2e','padding':'.6rem 0',
-      'margin-right':'1.5rem','text-decoration':'none','white-space':'nowrap',
-      'background':'none','border':'none','box-shadow':'none','cursor':'pointer',
-      'line-height':'1.2','font-family':'DM Sans,-apple-system,BlinkMacSystemFont,sans-serif',
-      'letter-spacing':'0','text-transform':'none'
-    });
-    var svg = nav.querySelector('svg');
-    if (svg) {
-      sp(svg, {
-        'display':'inline-block','width':'20px','height':'20px','max-width':'20px','max-height':'20px',
-        'margin-right':'6px','flex-shrink':'0','visibility':'visible','opacity':'1',
-        'vertical-align':'middle','transform':'none','filter':'none',
-        'overflow':'visible','border':'none','background':'none','padding':'0','margin-top':'0','margin-bottom':'0'
-      });
-      svg.querySelectorAll('circle,path').forEach(function(el) {
-        el.style.setProperty('opacity','1','important');
-        el.style.setProperty('visibility','visible','important');
-        el.style.setProperty('transform','none','important');
-        el.style.setProperty('filter','none','important');
-        el.style.setProperty('transition','none','important');
-      });
+      console.log('[Evolution] Using server snapshot from', prev._date, '(', Object.keys(snapshot).length, 'players)');
+    } else {
+      console.log('[Evolution] No prior snapshot yet — will be available tomorrow');
     }
-    nav.querySelectorAll('.hm-nav-link').forEach(function(a){
-      var isActive = a.classList.contains('hm-nav-active');
-      sp(a, {
-        'display':'inline-block','font-size':'.8rem',
-        'font-weight': isActive ? '600' : '500',
-        'color': isActive ? '#3b82f6' : '#5a6070',
-        'text-decoration':'none','padding':'.55rem .75rem',
-        'border-bottom': isActive ? '2px solid #3b82f6' : '2px solid transparent',
-        'white-space':'nowrap','background':'none','cursor':'pointer',
-        'font-family':'DM Sans,-apple-system,BlinkMacSystemFont,sans-serif',
-        'letter-spacing':'0','text-transform':'none'
-      });
-    });
-  }
-  fixNav();
-  document.addEventListener('DOMContentLoaded', fixNav);
-  window.addEventListener('load', fixNav);
-  setTimeout(fixNav, 500);
-  setTimeout(fixNav, 1500);
-})();
-<` + `/script>`;
-          html = html.replace('</head>', ssfNavScript + '\n</head>');
-          assembled = html;
-          ctx.waitUntil(cache.put(ck, new Response(assembled,{headers:{'Content-Type':'text/html;charset=UTF-8','Cache-Control':'public, max-age=300'}})));
-        }
-        return new Response(assembled, {headers:SSF_HEADERS});
-      } catch(err) { return safeError('Worker error loading SSF'); }
-    }
-
-    // === COMPARE PLAYERS ===
-    if (url.pathname === '/compare') {
-      try {
-        const cache = caches.default, ck = new Request('https://hoopsmatic.com/_page_cache/compare');
-        let assembled = null;
-        if (!url.searchParams.has('nocache')) { const c = await cache.match(ck); if (c) assembled = await c.text(); }
-        if (!assembled) {
-          const htmlR = await fetch(COMPARE_HTML_URL+'?t='+Date.now(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'*/*','Cache-Control':'no-cache, no-store','Pragma':'no-cache'}});
-          if (!htmlR.ok) return safeError('Failed to fetch Compare Players',502);
-          assembled = await htmlR.text();
-          assembled = assembled.replace('HoopsHype', 'HoopsMatic');
-
-          // Compare tracker: monkey-patch pushState to detect comparisons via p1/p2 URL params
-          const compareTracker = `<script>(function(){var _orig=history.pushState.bind(history);history.pushState=function(s,t,u){_orig(s,t,u);try{var p=new URL(u,location.origin).searchParams,p1=p.get('p1'),p2=p.get('p2');if(p1&&p2)fetch('/api/tracker',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tool:'compare',player1:p1,player2:p2})}).catch(function(){});}catch(e){}};})();<\/script>`;
-          assembled = assembled.replace('<head>', '<head>'+compareTracker);
-
-          assembled = injectNav(assembled, 'compare');
-          assembled = injectOG(assembled, 'compare');
-          ctx.waitUntil(cache.put(ck, new Response(assembled,{headers:{'Content-Type':'text/html;charset=UTF-8','Cache-Control':'public, max-age=300'}})));
-        }
-        return new Response(assembled, {headers:{...HTML_HEADERS,'Content-Security-Policy':"default-src 'self' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src * data:; connect-src 'self' https://jsierrahoopshype.github.io https://cdn.nba.com;"}});
-      } catch(err) { return safeError('Worker error loading Compare Players'); }
-    }
-
-    // === COMPARE SEASONS ===
-    if (url.pathname === '/compare-seasons') {
-      try {
-        const cache = caches.default, ck = new Request('https://hoopsmatic.com/_page_cache/compare-seasons');
-        let assembled = null;
-        if (!url.searchParams.has('nocache')) { const c = await cache.match(ck); if (c) assembled = await c.text(); }
-        if (!assembled) {
-          const htmlR = await fetch(SEASON_COMPARE_HTML_URL+'?t='+Date.now(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'*/*','Cache-Control':'no-cache, no-store','Pragma':'no-cache'}});
-          if (!htmlR.ok) return safeError('Failed to fetch Compare Seasons',502);
-          assembled = await htmlR.text();
-          assembled = assembled.replace('HoopsHype', 'HoopsMatic');
-          // Proxy Google Sheets through Worker API: intercept fetch calls
-          const seasonProxy = `<script>
-(function(){
-  var _gidMap = {1169156479:"rsStats",1181534071:"rsStatsPerGame",339737563:"advanced",52077302:"misc",867936474:"scoring",1415078232:"usage",10789411:"clutch",442838927:"bio",439158060:"hustle",1205457990:"shotLocation",1957258468:"defense"};
-  var _origFetch = window.fetch;
-  window.fetch = function(url){
-    if(typeof url==='string' && url.indexOf('docs.google.com')!==-1 && url.indexOf('export?format=csv')!==-1){
-      var m=url.match(/gid=(\\d+)/);
-      if(m && _gidMap[m[1]]){
-        return _origFetch.call(this,'/api/season-data?tab='+_gidMap[m[1]]);
-      }
-    }
-    return _origFetch.apply(this,arguments);
-  };
-})();
-<\/script>`;
-          assembled = assembled.replace('<head>', '<head>' + seasonProxy);
-          assembled = injectNav(assembled, 'seasons');
-          assembled = injectOG(assembled, 'seasons');
-          ctx.waitUntil(cache.put(ck, new Response(assembled,{headers:{'Content-Type':'text/html;charset=UTF-8','Cache-Control':'public, max-age=300'}})));
-        }
-        return new Response(assembled, {headers:{...HTML_HEADERS,'Content-Security-Policy':"default-src 'self' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src * data:; connect-src 'self' https://jsierrahoopshype.github.io https://cdn.nba.com;"}});
-      } catch(err) { return safeError('Worker error loading Compare Seasons'); }
-    }
-
-    // === TRADE MACHINE (landing page) ===
-    try {
-      const isRmMode = url.searchParams.has('rm');
-      const cache = caches.default, ck = new Request('https://hoopsmatic.com/_page_cache/trade-machine');
-      let assembled = null;
-      if (!isRmMode && !url.searchParams.has('nocache')) { const c = await cache.match(ck); if (c) assembled = await c.text(); }
-      if (!assembled) {
-      const htmlR = await fetch(TM_HTML_URL+'?t='+Date.now(),{headers:{'User-Agent':'Mozilla/5.0','Accept':'*/*','Cache-Control':'no-cache, no-store','Pragma':'no-cache'}});
-      if (!htmlR.ok) return safeError('Failed to fetch Trade Machine ('+htmlR.status+')',502);
-      let html = await htmlR.text();
-      if (!html.includes('Trade Machine') && !html.includes('tradeTeams')) return safeError('HTML does not look like Trade Machine',502);
-      html = html.replace(/if\s*\(window\.location\.hostname\.includes\('github\.io'\)\)\s*\{[^}]*\}/, '/* redirect removed */');
-      html = stripCF(html);
-      let inj = '';
-      try { const r = await fetch(CSV_URL,{headers:{'User-Agent':'Mozilla/5.0','Accept':'text/csv,*/*'}}); if(r.ok){inj='<script>window.__INJECTED_CSV_DATA__="'+btoa(unescape(encodeURIComponent(await r.text())))+'";</script>\n';} } catch(e){}
-      if (inj) html = html.replace(/<script/, inj+'<script');
-      html = injectNav(html, 'trade'); html = injectOG(html, 'trade');
-
-      const tmFix = `<style>header{position:sticky;top:0;z-index:50;background:var(--bg);padding-bottom:.5rem}.mobile-trade-teams{display:none}@media(max-width:768px){.mobile-trade-teams{display:flex!important;align-items:center;justify-content:center;gap:.5rem;padding:.5rem .75rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:.5rem;font-size:.85rem;font-weight:700}.mobile-trade-teams .mtt-team{display:flex;align-items:center;gap:.35rem}.mobile-trade-teams .mtt-arrow{color:var(--text-secondary);font-size:1.1rem}}.rm-mode .header-actions{display:none!important}.rm-mode header h1{display:none!important}.rm-mode .glossary-section{display:none!important}.rm-mode #tradeRumorsContainer{display:none!important}.rm-mode .contact-footer{display:none!important}.rm-mode #imageModal{display:none!important}.rm-mode .check-rumors-link{display:none!important}.rm-mode #hm-nav{display:none!important}.rm-mode header{padding:.4rem 1rem!important}.rm-mode .pick-item[data-pick-year="2026"]{border:2px solid var(--accent,#3b82f6)!important;background:rgba(59,130,246,.06)!important}</style><script>(function(){var rm=new URLSearchParams(window.location.search).has('rm');if(rm){document.documentElement.classList.add('rm-mode');document.addEventListener('DOMContentLoaded',function(){document.body.classList.add('rm-mode')});}})();<\/script>`;
-      html = html.replace('</head>', tmFix + '</head>');
-
-      const tmTeamStrip = '<script>(function(){function u(){var tc=document.getElementById("tradeContainer");if(!tc)return;var el=document.getElementById("mobileTradeTeams");if(!el){el=document.createElement("div");el.className="mobile-trade-teams";el.id="mobileTradeTeams";tc.insertBefore(el,tc.firstChild);}var sels=tc.querySelectorAll(".team-select");var teams=[];sels.forEach(function(s){if(s.value&&s.selectedIndex>0&&!s.disabled){teams.push(s.options[s.selectedIndex].text);}});if(teams.length<2){el.style.display="none";return;}el.style.display="";el.innerHTML=teams.map(function(t,i){return(i>0?"<span class=mtt-arrow>\\u2194</span>":"")+("<span class=mtt-team>"+t.split(" ").pop()+"</span>");}).join("");}var tid=0;var obs=new MutationObserver(function(){clearTimeout(tid);tid=setTimeout(u,300)});setTimeout(function(){obs.observe(document.getElementById("tradeContainer")||document.body,{childList:true,subtree:true});u();},3000);})();<\/script>';
-      html = html.replace('</body>', tmTeamStrip + '</body>');
-
-      const tmLink = `<script>(function(){var s=document.createElement('style');s.textContent='.hm-ct-icon{display:inline-block;font-size:10px;margin-left:3px;opacity:.3;cursor:pointer;vertical-align:middle;text-decoration:none;transition:opacity .15s;}.hm-ct-icon:hover{opacity:.8;}';document.head.appendChild(s);var seen=new WeakSet();var running=false;function linkify(){if(running)return;running=true;document.querySelectorAll('.player-roster-item[data-player]').forEach(function(el){if(seen.has(el))return;seen.add(el);var name=el.dataset.player;if(!name)return;var nameEl=el.querySelector('.player-roster-name');if(!nameEl)return;var icon=document.createElement('a');icon.className='hm-ct-icon';icon.href='/contracts#'+encodeURIComponent(name);icon.target='_blank';icon.title='View contract';icon.textContent='\\ud83d\\udccb';icon.addEventListener('click',function(e){e.stopPropagation();});nameEl.insertBefore(icon,nameEl.querySelector('.player-info-wrapper'));});running=false;}var tid=0;var obs=new MutationObserver(function(){clearTimeout(tid);tid=setTimeout(linkify,500)});setTimeout(function(){obs.observe(document.getElementById("tradeContainer")||document.body,{childList:true,subtree:true});linkify();},3000);})();<\\/script>`;
-      html = html.replace('</body>', tmLink+'</body>');
-
-      // Trade tracker: when a valid trade is detected, POST player/team data anonymously
-      const tmTracker = `<script>(function(){
-var _lastTradeHash='', _trackDebounce=0;
-function trackTrade(){
-  clearTimeout(_trackDebounce);
-  _trackDebounce = setTimeout(function(){
-    try {
-      var tc=document.getElementById('tradeContainer'); if(!tc) return;
-      // Check if trade is valid (look for success indicators)
-      var valid=tc.querySelector('.trade-valid, .trade-success, [class*="valid"], [class*="success"]');
-      if(!valid){
-        // Fallback: check for green text or checkmark in status area
-        var statusEls=tc.querySelectorAll('.trade-status, .validation-result, [class*="status"]');
-        for(var i=0;i<statusEls.length;i++){
-          var t=(statusEls[i].textContent||'').toLowerCase();
-          if(t.includes('works')||t.includes('valid')||t.includes('legal')){valid=statusEls[i];break;}
-        }
-      }
-      if(!valid) return;
-      // Extract players
-      var players=[], teams=new Set();
-      tc.querySelectorAll('.player-roster-item[data-player]').forEach(function(el){
-        var n=el.dataset.player; if(n) players.push(n);
-      });
-      tc.querySelectorAll('.team-select').forEach(function(s){
-        if(s.value && s.selectedIndex>0) teams.add(s.options[s.selectedIndex].text);
-      });
-      if(players.length<1) return;
-      // Dedupe: don't track same trade twice
-      var hash=players.sort().join('|')+'||'+[...teams].sort().join('|');
-      if(hash===_lastTradeHash) return;
-      _lastTradeHash=hash;
-      fetch('/api/tracker',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({tool:'tm',action:'trade',players:players,teams:[...teams]})
-      }).catch(function(){});
-    }catch(e){}
-  }, 2000);
+  } catch(e) { console.warn('[Evolution] Load error:', e); }
 }
-// Observe trade container for changes
-setTimeout(function(){
-  var tc=document.getElementById('tradeContainer')||document.body;
-  var obs=new MutationObserver(trackTrade);
-  obs.observe(tc,{childList:true,subtree:true,characterData:true});
-},5000);
-})();<\\/script>`;
-      html = html.replace('</body>', tmTracker+'</body>');
 
-      assembled = html;
-      if (!isRmMode) { ctx.waitUntil(cache.put(ck, new Response(assembled,{headers:{'Content-Type':'text/html;charset=UTF-8','Cache-Control':'public, max-age=300'}}))); }
+async function saveServerSnapshot() {
+  if (!appData) return;
+  try {
+    const snap = {};
+    appData.players.forEach(p => { snap[p.player] = { rank: p.rank, tv: p.uncappedTV, surplus: p.surplus }; });
+    const res = await fetch('https://hoopsmatic.com/api/rv-snapshot', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(snap)
+    });
+    if (res.ok) {
+      const d = await res.json();
+      console.log('[Evolution] Server snapshot saved:', d.rotated ? 'rotated to yesterday' : 'same day', '— players:', d.players);
+      // Use yesterday data from POST response (avoids race condition with separate GET)
+      if (d.yesterday && !snapshot) {
+        snapshot = {};
+        for (const [name, val] of Object.entries(d.yesterday)) {
+          if (name.startsWith('_')) continue;
+          snapshot[name] = val;
+        }
+        console.log('[Evolution] Loaded yesterday from POST response (', Object.keys(snapshot).length, 'players)');
+        update(); // re-render with evolution data
       }
-      return new Response(assembled, {headers:HTML_HEADERS});
-    } catch(err) { return safeError('Worker error loading Trade Machine'); }
+    }
+  } catch(e) { console.warn('[Evolution] Save error:', e); }
+}
+
+function takeSnapshot() {
+  if (!appData) return;
+  snapshot = {};
+  for (const p of appData.players) {
+    snapshot[p.player] = { rank: p.rank, tv: p.uncappedTV, surplus: p.surplus, watermark: p.watermark, rat365: p.rat365, contractTV: p.contractTV };
   }
-};
+  document.getElementById('snapBanner').style.display = 'block';
+  document.getElementById('snapshotBtn').classList.add('active');
+  document.getElementById('snapshotBtn').textContent = '📸 Locked';
+  document.getElementById('clearSnapBtn').style.display = '';
+  update();
+}
+
+function clearSnapshot() {
+  snapshot = null;
+  document.getElementById('snapBanner').style.display = 'none';
+  document.getElementById('snapshotBtn').classList.remove('active');
+  document.getElementById('snapshotBtn').textContent = '📸 Snapshot';
+  document.getElementById('clearSnapBtn').style.display = 'none';
+  update();
+}
+
+async function refreshData() {
+  const btn = document.getElementById('refreshBtn');
+  btn.textContent = '⏳ Loading...';
+  btn.disabled = true;
+  try {
+    const [res, cRes, dRes] = await Promise.all([
+      fetch(RATINGS_URL),
+      fetch(CONTRACT_URL),
+      fetch(DEFENSE_URL).catch(e => { console.warn('[Defense] Refresh fetch failed:', e.message); return null; })
+    ]);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const ratingsRows = parseCSV(await res.text());
+    const contractRows = cRes.ok ? parseCSV(await cRes.text()) : [];
+    let defenseMap = {};
+    if (dRes && dRes.ok) { try { defenseMap = await dRes.json(); } catch(e) {} }
+    appData = processData(ratingsRows, contractRows, defenseMap);
+    buildStats(appData);
+    update();
+    saveServerSnapshot();
+    btn.textContent = '✅ Updated';
+    setTimeout(() => { btn.textContent = '↻ Refresh'; }, 1500);
+  } catch(err) {
+    btn.textContent = '❌ Error';
+    setTimeout(() => { btn.textContent = '↻ Refresh'; }, 2000);
+  }
+  btn.disabled = false;
+}
+
+function deltaHTML(cur, prev, invert) {
+  if (prev === undefined || prev === null) return '';
+  const d = cur - prev;
+  if (Math.abs(d) < 0.005) return '';
+  const sign = invert ? -d : d;
+  const cls = sign > 0 ? 'delta-up' : 'delta-down';
+  const arrow = sign > 0 ? '▲' : '▼';
+  return `<span class="delta ${cls}">${arrow}${Math.abs(d) >= 1e5 ? fmt$(Math.abs(d)) : Math.abs(d).toLocaleString(undefined,{maximumFractionDigits:2})}</span>`;
+}
+
+function rankDelta(cur, prev) {
+  if (prev === undefined || prev === null) return '';
+  const d = prev - cur;
+  if (d === 0) return '';
+  const cls = d > 0 ? 'delta-up' : 'delta-down';
+  const arrow = d > 0 ? '▲' : '▼';
+  return `<span class="delta ${cls}">${arrow}${Math.abs(d)}</span>`;
+}
+
+function fmt$(n) { const a=Math.abs(n); if(a>=1e6)return(n<0?'-':'')+'$'+(a/1e6).toFixed(1)+'M'; if(a>=1e3)return(n<0?'-':'')+'$'+(a/1e3).toFixed(0)+'K'; return '$'+n.toLocaleString(); }
+function fmtFull$(n) { return (n<0?'-$':'$')+Math.abs(n).toLocaleString(); }
+function fmtTV$(n) { return (!n || n < 650000) ? '<$650K' : fmt$(n); }
+function fmtFullTV$(n) { return (!n || n < 650000) ? '<$650K' : fmtFull$(n); }
+function ratCls(r) { return r>=18?'rat-elite':r>=12?'rat-star':r>=6?'rat-solid':r>=2?'rat-avg':'rat-low'; }
+function rankCls(r) { return r<=5?'rank-top5':r<=20?'rank-top20':r<=50?'rank-top50':''; }
+function surpCls(s) { return s>5e5?'surplus-pos':s<-5e5?'surplus-neg':'surplus-neutral'; }
+
+function buildStats(d) {
+  const avgWM = d.players.reduce((s,p) => s+p.watermark, 0) / d.players.length;
+  const now = new Date();
+  const lastUpd = now.toLocaleString('en-US', {timeZone:'America/New_York', month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit', hour12:true}) + ' ET';
+  document.getElementById('statsBar').innerHTML = [
+    {l:'Salary Pool',v:'$'+(d.totalSalaryPool/1e9).toFixed(2),u:'B'},
+    {l:'Players Ranked',v:d.players.length,u:''},
+    {l:'Avg Age',v:d.avgAge.toFixed(1),u:' yrs'},
+    {l:'Last Updated',v:'<span style="font-size:0.85rem">'+lastUpd+'</span>',u:''}
+  ].map(s=>`<div class="stat-card"><div class="label">${s.l}</div><div class="value">${s.v}<span class="unit">${s.u}</span></div></div>`).join('');
+}
+
+function buildTeams(d) {
+  const sel = document.getElementById('teamFilter');
+  sel.innerHTML = '<option value="">All Teams</option>';
+  [...new Set(d.players.map(p=>p.team))].sort().forEach(t => { const o=document.createElement('option'); o.value=t; o.textContent=t; sel.appendChild(o); });
+}
+
+function renderTable(players) {
+  const maxS = Math.max(...appData.players.map(p=>Math.abs(p.surplus)));
+  document.getElementById('tableBody').innerHTML = players.map((p,i) => {
+    const pct = Math.min(Math.abs(p.surplus)/maxS*50, 50);
+    const bc = p.surplus>=0?'positive':'negative';
+    const s = snapshot ? snapshot[p.player] : null;
+    // Category: only Max Player, Minimum, Two-Way — blank otherwise
+    let cat = '';
+    if (p.capped) cat = '<span style="color:var(--accent)">Max Player</span>';
+    else if (p.twoWay) cat = '<span style="color:var(--surplus-neg)">Two-Way</span>';
+    else if (p.floored && p.uncappedTV < 2000000) cat = '<span style="color:var(--text-muted)">Minimum</span>';
+    // Evolution: TV delta from snapshot (shown inline with Real Value)
+    let evoDelta = '';
+    if (s && s.tv != null) {
+      const tvDelta = p.uncappedTV - s.tv;
+      if (tvDelta !== 0) evoDelta = `<div style="font-size:.6rem;color:${tvDelta>0?'var(--green)':'var(--red)'}">(${tvDelta>0?'+':''}${fmt$(tvDelta)})</div>`;
+    }
+    return `<tr style="animation-delay:${Math.min(i*0.015,0.4)}s">
+      <td class="col-rank ${rankCls(p.rank)}">${p.rank}</td>
+      <td class="col-player"><div class="player-name">${p.player}</div><div class="player-team">${p.team}</div></td>
+      <td class="col-num" style="color:${p.age !== null && p.age < 25 ? 'var(--accent)' : 'var(--text)'}">${p.age!==null?p.age.toFixed(1):'\u2014'}</td>
+      <td class="col-num col-real-value">${fmtFullTV$(p.uncappedTV)}${evoDelta}</td>
+      <td class="col-num">${fmtFull$(p.salary)}</td>
+      <td class="col-num" style="font-size:0.78rem;text-align:center">${cat}</td>
+      <td class="col-num col-surplus"><div class="surplus-cell"><div class="surplus-bar-track"><div class="surplus-bar-center"></div><div class="surplus-bar ${bc}" style="width:${pct}%"></div></div><span class="${surpCls(p.surplus)}">${p.surplus>=0?'+':''}${fmt$(p.surplus)}</span></div></td>
+    </tr>`;
+  }).join('');
+}
+
+
+function update() {
+  if (!appData) return;
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const team = document.getElementById('teamFilter').value;
+  const [sortKey, sortDir] = document.getElementById('sortSelect').value.split('-');
+  let f = appData.players.filter(p => {
+    if (team && p.team !== team) return false;
+    if (search && !p.player.toLowerCase().includes(search) && !p.team.toLowerCase().includes(search)) return false;
+    return true;
+  });
+  const dir = sortDir==='desc'?-1:1;
+  f.sort((a,b) => {
+    const av = a[sortKey], bv = b[sortKey];
+    if (av === null && bv === null) return 0;
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    return (av - bv) * dir;
+  });
+  renderTable(f);
+}
+
+async function init() {
+  try {
+    const [res, cRes, dRes] = await Promise.all([
+      fetch(RATINGS_URL),
+      fetch(CONTRACT_URL),
+      fetch(DEFENSE_URL).catch(e => { console.warn('[Defense] Fetch failed:', e.message); return null; })
+    ]);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const ratingsRows = parseCSV(await res.text());
+    const contractRows = cRes.ok ? parseCSV(await cRes.text()) : [];
+    console.log('[Defense] Fetch result:', dRes ? `status=${dRes.status}, ok=${dRes.ok}` : 'null (fetch failed)');
+    let defenseMap = {};
+    if (dRes && dRes.ok) {
+      try { defenseMap = await dRes.json(); console.log('[Defense] Cache has', Object.keys(defenseMap).length, 'players'); }
+      catch(e) { console.warn('[Defense] Parse error:', e.message); }
+    }
+    appData = processData(ratingsRows, contractRows, defenseMap);
+
+    document.getElementById('loadingArea').style.display = 'none';
+    document.getElementById('tableContainer').style.display = 'block';
+    document.getElementById('searchInput').disabled = false;
+    document.getElementById('teamFilter').disabled = false;
+    document.getElementById('sortSelect').disabled = false;
+
+    buildStats(appData);
+    buildTeams(appData);
+    await saveServerSnapshot(); // save first — triggers rotation and returns yesterday data
+    if (!snapshot) await loadServerSnapshot(); // fallback if POST didn't provide yesterday
+    update();
+
+    document.getElementById('searchInput').addEventListener('input', update);
+    document.getElementById('teamFilter').addEventListener('change', update);
+    document.getElementById('sortSelect').addEventListener('change', update);
+    
+    document.getElementById('refreshBtn').disabled = false;
+    
+    document.getElementById('refreshBtn').addEventListener('click', refreshData);
+    
+  } catch(err) {
+    document.getElementById('loadingArea').innerHTML =
+      `<div class="error-msg"><p>⚠️ Failed to fetch data: ${err.message}</p><p style="color:var(--text-muted);margin-top:0.5rem;font-size:0.85rem;">Please try again later or contact support</p></div>`;
+  }
+}
+init();
+</script>
+</body>
+</html>
