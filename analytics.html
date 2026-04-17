@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HoopsMatic Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f8f9fa;--surface:#fff;--border:#e2e5e9;--text:#1a1a2e;--text2:#5a6070;--muted:#8892a6;--accent:#3b82f6;--accent-dim:rgba(59,130,246,.07);--green:#16a34a;--red:#dc2626;--orange:#f59e0b}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);padding:2rem;max-width:1400px;margin:0 auto}
+h1{font-size:1.6rem;font-weight:800;letter-spacing:-.02em;margin-bottom:.25rem}
+.subtitle{font-size:.8rem;color:var(--muted);margin-bottom:1.5rem}
+.updated{font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--muted);margin-bottom:1.5rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1.25rem;margin-bottom:2rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.card-hdr{padding:.75rem 1rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.card-hdr h2{font-size:.85rem;font-weight:700;display:flex;align-items:center;gap:.4rem}
+.card-hdr .badge{font-family:'JetBrains Mono',monospace;font-size:.6rem;font-weight:600;padding:.15rem .5rem;border-radius:10px;background:var(--accent-dim);color:var(--accent)}
+.card-body{padding:0}
+table{width:100%;border-collapse:collapse;font-size:.78rem}
+thead th{background:#f3f4f6;color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:.6rem;font-weight:500;text-transform:uppercase;letter-spacing:.06em;padding:.5rem .75rem;text-align:left;border-bottom:1px solid var(--border);position:sticky;top:0}
+thead th:last-child{text-align:right}
+tbody td{padding:.45rem .75rem;border-bottom:1px solid #f3f4f6;vertical-align:middle}
+tbody td:last-child{text-align:right;font-family:'JetBrains Mono',monospace;font-weight:600;font-size:.75rem}
+tbody tr:hover{background:rgba(59,130,246,.02)}
+.rank{font-size:.6rem;color:var(--muted);font-weight:600;min-width:18px;display:inline-block}
+.empty{padding:2rem;text-align:center;color:var(--muted);font-size:.8rem}
+.stat-row{display:flex;gap:1rem;margin-bottom:1.5rem;flex-wrap:wrap}
+.stat-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.75rem 1rem;flex:1;min-width:120px}
+.stat-box .val{font-size:1.4rem;font-weight:800;color:var(--accent);font-family:'JetBrains Mono',monospace}
+.stat-box .label{font-size:.6rem;color:var(--muted);margin-top:.15rem;text-transform:uppercase;letter-spacing:.04em}
+.section-title{font-size:1rem;font-weight:700;margin:2rem 0 .75rem;padding-bottom:.4rem;border-bottom:2px solid var(--border);display:flex;align-items:center;gap:.5rem}
+.recent-list{max-height:340px;overflow-y:auto}
+.recent-item{padding:.4rem .75rem;border-bottom:1px solid #f3f4f6;font-size:.75rem;display:flex;align-items:center;gap:.5rem}
+.recent-item:hover{background:rgba(59,130,246,.02)}
+.recent-item .time{font-family:'JetBrains Mono',monospace;font-size:.6rem;color:var(--muted);min-width:70px}
+.recent-item .action{font-weight:600;min-width:60px}
+.recent-item .detail{color:var(--text2)}
+.act-draft{color:#8b5cf6}.act-sign{color:var(--green)}.act-waive{color:var(--red)}.act-option{color:var(--orange)}.act-trade{color:var(--accent)}.act-compare{color:#8b5cf6}.act-sim{color:var(--muted)}
+.loading{text-align:center;padding:4rem;color:var(--muted);font-size:.9rem}
+.tab-bar{display:flex;gap:.4rem;margin-bottom:1.5rem}
+.tab-btn{font-family:inherit;font-size:.78rem;font-weight:600;padding:.5rem 1rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text2);cursor:pointer;transition:all .15s}
+.tab-btn:hover{border-color:var(--accent);color:var(--accent)}
+.tab-btn.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent)}
+.hidden{display:none!important}
+@media(max-width:600px){body{padding:1rem}.grid{grid-template-columns:1fr}.stat-row{gap:.5rem}.stat-box{min-width:80px;padding:.5rem .75rem}.stat-box .val{font-size:1.1rem}}
+</style>
+</head>
+<body>
+<h1>📊 HoopsMatic Analytics</h1>
+<div class="subtitle">Anonymous aggregate user activity across all HoopsMatic tools</div>
+<div class="updated" id="updated"></div>
+
+<div class="stat-row" id="topStats"></div>
+
+<div class="tab-bar" id="tabBar">
+  <button class="tab-btn active" data-tab="rm">Roster Manager</button>
+  <button class="tab-btn" data-tab="compare">Player Comparisons</button>
+  <button class="tab-btn" data-tab="tm">Trade Machine</button>
+  <button class="tab-btn" data-tab="recent">Recent Activity</button>
+</div>
+
+<div id="rm-tab"></div>
+<div id="compare-tab" class="hidden"></div>
+<div id="tm-tab" class="hidden"></div>
+<div id="recent-tab" class="hidden"></div>
+
+<script>
+const fmtDate = ts => {
+  try { const d = new Date(ts); return d.toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}); }
+  catch(e) { return ts; }
+};
+
+const sortDesc = obj => Object.entries(obj).sort((a,b) => b[1]-a[1]);
+
+function leaderboard(data, label, countLabel='Count') {
+  const rows = sortDesc(data);
+  if (!rows.length) return `<div class="empty">No data yet</div>`;
+  let h = `<table><thead><tr><th>#</th><th>${label}</th><th>${countLabel}</th></tr></thead><tbody>`;
+  rows.forEach(([name, count], i) => {
+    h += `<tr><td><span class="rank">${i+1}</span></td><td>${name}</td><td>${count}</td></tr>`;
+  });
+  return h + '</tbody></table>';
+}
+
+function renderTopStats(d) {
+  const el = document.getElementById('topStats');
+  const stats = [
+    { val: d.rm?.totalSims || 0, label: 'RM Simulations' },
+    { val: Object.values(d.rm?.signed||{}).reduce((s,v)=>s+v,0), label: 'FA Signings' },
+    { val: Object.values(d.rm?.drafted||{}).reduce((s,v)=>s+v,0), label: 'Draft Picks' },
+    { val: d.compare?.total || 0, label: 'Comparisons' },
+    { val: d.tm?.trades || 0, label: 'Trades' },
+  ];
+  el.innerHTML = stats.map(s => `<div class="stat-box"><div class="val">${s.val}</div><div class="label">${s.label}</div></div>`).join('');
+}
+
+function renderRM(d) {
+  const rm = d.rm || {};
+  let h = '<div class="grid">';
+
+  h += `<div class="card"><div class="card-hdr"><h2>🏀 Most Drafted Prospects</h2><div class="badge">${Object.keys(rm.drafted||{}).length} players</div></div><div class="card-body">${leaderboard(rm.drafted||{}, 'Prospect', 'Times Drafted')}</div></div>`;
+
+  h += `<div class="card"><div class="card-hdr"><h2>✍️ Most Signed FAs</h2><div class="badge">${Object.keys(rm.signed||{}).length} players</div></div><div class="card-body">${leaderboard(rm.signed||{}, 'Player', 'Times Signed')}</div></div>`;
+
+  h += `<div class="card"><div class="card-hdr"><h2>📋 Most Waived Players</h2><div class="badge">${Object.keys(rm.waived||{}).length} players</div></div><div class="card-body">${leaderboard(rm.waived||{}, 'Player', 'Times Waived')}</div></div>`;
+
+  h += `<div class="card"><div class="card-hdr"><h2>✅ Options Picked Up</h2><div class="badge">${Object.keys(rm.optionPickup||{}).length} players</div></div><div class="card-body">${leaderboard(rm.optionPickup||{}, 'Player', 'Times Picked Up')}</div></div>`;
+
+  h += `<div class="card"><div class="card-hdr"><h2>❌ Options Declined</h2><div class="badge">${Object.keys(rm.optionDecline||{}).length} players</div></div><div class="card-body">${leaderboard(rm.optionDecline||{}, 'Player', 'Times Declined')}</div></div>`;
+
+  h += `<div class="card"><div class="card-hdr"><h2>🏟️ Drafts by Team</h2><div class="badge">${Object.keys(rm.draftedByTeam||{}).length} teams</div></div><div class="card-body">${leaderboard(rm.draftedByTeam||{}, 'Team', 'Picks Made')}</div></div>`;
+
+  h += `<div class="card"><div class="card-hdr"><h2>🏟️ Signings by Team</h2><div class="badge">${Object.keys(rm.signedByTeam||{}).length} teams</div></div><div class="card-body">${leaderboard(rm.signedByTeam||{}, 'Team', 'Signings')}</div></div>`;
+
+  h += '</div>';
+  document.getElementById('rm-tab').innerHTML = h;
+}
+
+function renderCompare(d) {
+  const c = d.compare || {};
+  let h = '<div class="grid">';
+
+  h += `<div class="card"><div class="card-hdr"><h2>🔥 Most Compared Pairs</h2><div class="badge">${Object.keys(c.pairs||{}).length} pairs</div></div><div class="card-body">${leaderboard(c.pairs||{}, 'Matchup', 'Times')}</div></div>`;
+
+  h += `<div class="card"><div class="card-hdr"><h2>👤 Most Compared Players</h2><div class="badge">${Object.keys(c.players||{}).length} players</div></div><div class="card-body">${leaderboard(c.players||{}, 'Player', 'Appearances')}</div></div>`;
+
+  h += '</div>';
+
+  if ((c.recent||[]).length) {
+    h += `<div class="card" style="margin-top:1rem"><div class="card-hdr"><h2>🕐 Recent Comparisons</h2><div class="badge">last ${Math.min(c.recent.length,50)}</div></div><div class="card-body"><div class="recent-list">`;
+    (c.recent||[]).slice(0,50).forEach(r => {
+      h += `<div class="recent-item"><span class="time">${fmtDate(r.ts)}</span><span class="detail">${r.player1} <strong>vs</strong> ${r.player2}</span></div>`;
+    });
+    h += '</div></div></div>';
+  }
+
+  document.getElementById('compare-tab').innerHTML = h;
+}
+
+function renderTM(d) {
+  const tm = d.tm || {};
+  let h = '<div class="grid">';
+
+  h += `<div class="card"><div class="card-hdr"><h2>🔄 Most Traded Players</h2><div class="badge">${Object.keys(tm.players||{}).length} players</div></div><div class="card-body">${leaderboard(tm.players||{}, 'Player', 'Times Traded')}</div></div>`;
+
+  h += `<div class="card"><div class="card-hdr"><h2>🏟️ Most Active Teams</h2><div class="badge">${Object.keys(tm.teams||{}).length} teams</div></div><div class="card-body">${leaderboard(tm.teams||{}, 'Team', 'Trades')}</div></div>`;
+
+  h += '</div>';
+
+  if ((tm.recent||[]).length) {
+    h += `<div class="card" style="margin-top:1rem"><div class="card-hdr"><h2>🕐 Recent Trades</h2><div class="badge">last ${Math.min(tm.recent.length,50)}</div></div><div class="card-body"><div class="recent-list">`;
+    (tm.recent||[]).slice(0,50).forEach(r => {
+      const teams = (r.teams||[]).join(' ↔ ');
+      const players = (r.players||[]).join(', ');
+      h += `<div class="recent-item"><span class="time">${fmtDate(r.ts)}</span><span class="action act-trade">Trade</span><span class="detail">${teams}: ${players}</span></div>`;
+    });
+    h += '</div></div></div>';
+  }
+
+  document.getElementById('tm-tab').innerHTML = h;
+}
+
+function renderRecent(d) {
+  const all = [];
+  (d.rm?.recent||[]).forEach(r => all.push({...r, tool:'rm'}));
+  (d.tm?.recent||[]).forEach(r => all.push({...r, tool:'tm'}));
+  (d.compare?.recent||[]).forEach(r => all.push({...r, tool:'compare', action:'compare'}));
+  all.sort((a,b) => new Date(b.ts) - new Date(a.ts));
+
+  let h = `<div class="card"><div class="card-hdr"><h2>🕐 All Recent Activity</h2><div class="badge">${all.length} events</div></div><div class="card-body"><div class="recent-list" style="max-height:600px">`;
+
+  all.slice(0,100).forEach(r => {
+    const cls = r.action === 'draft' ? 'act-draft' : r.action === 'sign' ? 'act-sign' : r.action === 'waive' ? 'act-waive' : r.action?.startsWith('option') ? 'act-option' : r.action === 'trade' ? 'act-trade' : r.action === 'compare' ? 'act-compare' : 'act-sim';
+
+    let label = r.action || '';
+    let detail = '';
+    if (r.action === 'compare') {
+      label = 'Compare';
+      detail = `${r.player1} vs ${r.player2}`;
+    } else if (r.action === 'trade') {
+      detail = `${(r.teams||[]).join(' ↔ ')}: ${(r.players||[]).join(', ')}`;
+    } else if (r.action === 'sim_start') {
+      label = 'Sim';
+      detail = r.team || '';
+    } else {
+      label = r.action?.replace('_',' ') || '';
+      detail = [r.player, r.team].filter(Boolean).join(' · ');
+      if (r.extra?.salary) detail += ` · $${(r.extra.salary/1e6).toFixed(1)}M`;
+      if (r.extra?.pick) detail += ` · Pick #${r.extra.pick}`;
+    }
+
+    h += `<div class="recent-item"><span class="time">${fmtDate(r.ts)}</span><span class="action ${cls}">${label}</span><span class="detail">${detail}</span></div>`;
+  });
+
+  h += '</div></div></div>';
+  document.getElementById('recent-tab').innerHTML = h;
+}
+
+// Tab switching
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    ['rm','compare','tm','recent'].forEach(t => document.getElementById(t+'-tab').classList.add('hidden'));
+    document.getElementById(btn.dataset.tab+'-tab').classList.remove('hidden');
+  });
+});
+
+// Load data
+(async function() {
+  try {
+    const r = await fetch('/api/tracker');
+    const d = await r.json();
+    document.getElementById('updated').textContent = d._updated ? 'Last updated: ' + fmtDate(d._updated) + ' ET' : '';
+    renderTopStats(d);
+    renderRM(d);
+    renderCompare(d);
+    renderTM(d);
+    renderRecent(d);
+  } catch(e) {
+    document.getElementById('rm-tab').innerHTML = '<div class="empty">Failed to load tracker data</div>';
+  }
+})();
+</script>
+</body>
+</html>
