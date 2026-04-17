@@ -183,6 +183,7 @@ tbody tr { animation:fadeInRow 0.25s ease both; }
         <th style="text-align:right">Salary</th>
         <th style="text-align:center">Category</th>
         <th style="text-align:right">Surplus</th>
+        <th style="text-align:center">Evolution</th>
       </tr>
     </thead>
     <tbody id="tableBody"></tbody>
@@ -869,7 +870,15 @@ function renderTable(players) {
     if (p.capped) cat = '<span style="color:var(--accent)">Max Player</span>';
     else if (p.twoWay) cat = '<span style="color:var(--surplus-neg)">Two-Way</span>';
     else if (p.floored && p.uncappedTV < 2000000) cat = '<span style="color:var(--text-muted)">Minimum</span>';
-    // Evolution: delta from snapshot
+    // Evolution: rank + TV delta from snapshot
+    let evoHtml = '<span style="color:var(--text-muted)">\u2014</span>';
+    if (s && s.rank != null) {
+      const rankDelta = s.rank - p.rank; // positive = improved (rank went down numerically)
+      const tvDelta = p.uncappedTV - (s.tv || 0);
+      const rankStr = rankDelta > 0 ? `<span style="color:var(--green)">▲${rankDelta}</span>` : rankDelta < 0 ? `<span style="color:var(--red)">▼${Math.abs(rankDelta)}</span>` : '<span style="color:var(--text-muted)">—</span>';
+      const tvStr = tvDelta !== 0 ? `<span style="color:${tvDelta>0?'var(--green)':'var(--red)'}; font-size:.6rem">${tvDelta>0?'+':''}${fmt$(tvDelta)}</span>` : '';
+      evoHtml = rankStr + (tvStr ? '<br>' + tvStr : '');
+    }
     return `<tr style="animation-delay:${Math.min(i*0.015,0.4)}s">
       <td class="col-rank ${rankCls(p.rank)}">${p.rank}</td>
       <td class="col-player"><div class="player-name">${p.player}</div><div class="player-team">${p.team}</div></td>
@@ -878,6 +887,7 @@ function renderTable(players) {
       <td class="col-num">${fmtFull$(p.salary)}</td>
       <td class="col-num" style="font-size:0.78rem;text-align:center">${cat}</td>
       <td class="col-num col-surplus"><div class="surplus-cell"><div class="surplus-bar-track"><div class="surplus-bar-center"></div><div class="surplus-bar ${bc}" style="width:${pct}%"></div></div><span class="${surpCls(p.surplus)}">${p.surplus>=0?'+':''}${fmt$(p.surplus)}</span></div></td>
+      <td class="col-num" style="text-align:center;font-size:.72rem;line-height:1.3">${evoHtml}</td>
     </tr>`;
   }).join('');
 }
