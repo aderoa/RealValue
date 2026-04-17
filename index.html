@@ -886,7 +886,7 @@ function renderTable(players) {
     let evoDelta = '';
     if (s && s.tv != null) {
       const tvDelta = p.uncappedTV - s.tv;
-      if (tvDelta !== 0) evoDelta = `<div style="font-size:.6rem;color:${tvDelta>0?'var(--green)':'var(--red)'}">(${tvDelta>0?'+':''}${fmt$(tvDelta)})</div>`;
+      if (tvDelta !== 0) evoDelta = ` <span style="font-size:.6rem;color:${tvDelta>0?'var(--green)':'var(--red)'}">(${tvDelta>0?'+':''}${fmt$(tvDelta)})</span>`;
     }
     return `<tr style="animation-delay:${Math.min(i*0.015,0.4)}s">
       <td class="col-rank ${rankCls(p.rank)}">${p.rank}</td>
