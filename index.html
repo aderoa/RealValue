@@ -760,7 +760,20 @@ async function saveServerSnapshot() {
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify(snap)
     });
-    if (res.ok) { const d = await res.json(); console.log('[Evolution] Server snapshot:', d); }
+    if (res.ok) {
+      const d = await res.json();
+      console.log('[Evolution] Server snapshot saved:', d.rotated ? 'rotated to yesterday' : 'same day', '— players:', d.players);
+      // Use yesterday data from POST response (avoids race condition with separate GET)
+      if (d.yesterday && !snapshot) {
+        snapshot = {};
+        for (const [name, val] of Object.entries(d.yesterday)) {
+          if (name.startsWith('_')) continue;
+          snapshot[name] = val;
+        }
+        console.log('[Evolution] Loaded yesterday from POST response (', Object.keys(snapshot).length, 'players)');
+        update(); // re-render with evolution data
+      }
+    }
   } catch(e) { console.warn('[Evolution] Save error:', e); }
 }
 
@@ -940,9 +953,9 @@ async function init() {
 
     buildStats(appData);
     buildTeams(appData);
-    await loadServerSnapshot();
+    await saveServerSnapshot(); // save first — triggers rotation and returns yesterday data
+    if (!snapshot) await loadServerSnapshot(); // fallback if POST didn't provide yesterday
     update();
-    saveServerSnapshot();
 
     document.getElementById('searchInput').addEventListener('input', update);
     document.getElementById('teamFilter').addEventListener('change', update);
