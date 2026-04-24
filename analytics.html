@@ -154,20 +154,20 @@ function renderDS(d) {
   // Drafts by team — how many sims have been completed as each team
   h += `<div class="card"><div class="card-hdr"><h2>🏟️ Drafts by Team</h2><div class="badge">${Object.keys(ds.byTeam||{}).length} teams</div></div><div class="card-body">${leaderboard(ds.byTeam||{}, 'Team', 'Sims Run')}</div></div>`;
 
-  // Most common pick at each lottery slot (1-14): find the top player per pick number
+  // Most common pick at each slot (1-60): find the top player per pick number
   const byPick = ds.byPick || {};
-  const lotteryPicks = [];
-  for (let p = 1; p <= 14; p++) {
+  const allPicks = [];
+  for (let p = 1; p <= 60; p++) {
     const playersAtPick = byPick[p] || byPick[String(p)] || {};
     const sorted = sortDesc(playersAtPick);
     if (sorted.length) {
-      lotteryPicks.push({ pick: p, player: sorted[0][0], count: sorted[0][1], total: sorted.reduce((s, [, c]) => s + c, 0) });
+      allPicks.push({ pick: p, player: sorted[0][0], count: sorted[0][1], total: sorted.reduce((s, [, c]) => s + c, 0) });
     }
   }
   let pickHtml;
-  if (lotteryPicks.length) {
+  if (allPicks.length) {
     pickHtml = `<table><thead><tr><th>Pick</th><th>Most Common Player</th><th>Times</th></tr></thead><tbody>`;
-    lotteryPicks.forEach(p => {
+    allPicks.forEach(p => {
       const pct = p.total > 0 ? ((p.count / p.total) * 100).toFixed(0) : '—';
       pickHtml += `<tr><td><span class="rank">#${p.pick}</span></td><td>${p.player} <span style="color:var(--muted);font-size:.7rem">(${pct}% of ${p.total})</span></td><td>${p.count}</td></tr>`;
     });
@@ -175,7 +175,7 @@ function renderDS(d) {
   } else {
     pickHtml = `<div class="empty">No data yet</div>`;
   }
-  h += `<div class="card"><div class="card-hdr"><h2>🎯 Top Pick at Each Lottery Slot</h2><div class="badge">picks 1–14</div></div><div class="card-body">${pickHtml}</div></div>`;
+  h += `<div class="card"><div class="card-hdr"><h2>🎯 Top Pick at Each Slot</h2><div class="badge">picks 1–60</div></div><div class="card-body" style="max-height:480px;overflow-y:auto">${pickHtml}</div></div>`;
 
   h += '</div>';
 
