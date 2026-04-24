@@ -57,12 +57,14 @@ tbody tr:hover{background:rgba(59,130,246,.02)}
 
 <div class="tab-bar" id="tabBar">
   <button class="tab-btn active" data-tab="rm">Roster Manager</button>
+  <button class="tab-btn" data-tab="ds">Draft Simulator</button>
   <button class="tab-btn" data-tab="compare">Player Comparisons</button>
   <button class="tab-btn" data-tab="tm">Trade Machine</button>
   <button class="tab-btn" data-tab="recent">Recent Activity</button>
 </div>
 
 <div id="rm-tab"></div>
+<div id="ds-tab" class="hidden"></div>
 <div id="compare-tab" class="hidden"></div>
 <div id="tm-tab" class="hidden"></div>
 <div id="recent-tab" class="hidden"></div>
@@ -90,7 +92,9 @@ function renderTopStats(d) {
   const stats = [
     { val: d.rm?.totalSims || 0, label: 'RM Simulations' },
     { val: Object.values(d.rm?.signed||{}).reduce((s,v)=>s+v,0), label: 'FA Signings' },
-    { val: Object.values(d.rm?.drafted||{}).reduce((s,v)=>s+v,0), label: 'Draft Picks' },
+    { val: Object.values(d.rm?.drafted||{}).reduce((s,v)=>s+v,0), label: 'RM Drafts' },
+    { val: d.ds?.totalSims || 0, label: 'DS Simulations' },
+    { val: Object.values(d.ds?.drafted||{}).reduce((s,v)=>s+v,0), label: 'DS Drafts' },
     { val: d.compare?.total || 0, label: 'Comparisons' },
     { val: d.tm?.trades || 0, label: 'Trades' },
   ];
@@ -140,6 +144,54 @@ function renderCompare(d) {
   document.getElementById('compare-tab').innerHTML = h;
 }
 
+function renderDS(d) {
+  const ds = d.ds || {};
+  let h = '<div class="grid">';
+
+  // Most-drafted prospects in DS
+  h += `<div class="card"><div class="card-hdr"><h2>🏀 Most Drafted Prospects</h2><div class="badge">${Object.keys(ds.drafted||{}).length} prospects</div></div><div class="card-body">${leaderboard(ds.drafted||{}, 'Prospect', 'Times Drafted')}</div></div>`;
+
+  // Drafts by team — how often each team's user has completed a draft
+  h += `<div class="card"><div class="card-hdr"><h2>🏟️ Drafts by Team</h2><div class="badge">${Object.keys(ds.byTeam||{}).length} teams</div></div><div class="card-body">${leaderboard(ds.byTeam||{}, 'Team', 'Picks Made')}</div></div>`;
+
+  // Most common pick at each lottery slot (1-14): find the top player per pick number
+  const byPick = ds.byPick || {};
+  const lotteryPicks = [];
+  for (let p = 1; p <= 14; p++) {
+    const playersAtPick = byPick[p] || byPick[String(p)] || {};
+    const sorted = sortDesc(playersAtPick);
+    if (sorted.length) {
+      lotteryPicks.push({ pick: p, player: sorted[0][0], count: sorted[0][1], total: sorted.reduce((s, [, c]) => s + c, 0) });
+    }
+  }
+  let pickHtml;
+  if (lotteryPicks.length) {
+    pickHtml = `<table><thead><tr><th>Pick</th><th>Most Common Player</th><th>Times</th></tr></thead><tbody>`;
+    lotteryPicks.forEach(p => {
+      const pct = p.total > 0 ? ((p.count / p.total) * 100).toFixed(0) : '—';
+      pickHtml += `<tr><td><span class="rank">#${p.pick}</span></td><td>${p.player} <span style="color:var(--muted);font-size:.7rem">(${pct}% of ${p.total})</span></td><td>${p.count}</td></tr>`;
+    });
+    pickHtml += '</tbody></table>';
+  } else {
+    pickHtml = `<div class="empty">No data yet</div>`;
+  }
+  h += `<div class="card"><div class="card-hdr"><h2>🎯 Top Pick at Each Lottery Slot</h2><div class="badge">picks 1–14</div></div><div class="card-body">${pickHtml}</div></div>`;
+
+  h += '</div>';
+
+  // Recent DS picks — flat list of every pick, newest first
+  if ((ds.recent||[]).length) {
+    h += `<div class="card" style="margin-top:1rem"><div class="card-hdr"><h2>🕐 Recent Picks</h2><div class="badge">last ${Math.min(ds.recent.length,50)}</div></div><div class="card-body"><div class="recent-list">`;
+    (ds.recent||[]).slice(0,50).forEach(r => {
+      const detail = [r.team, r.pick ? `Pick #${r.pick}` : null, r.player].filter(Boolean).join(' · ');
+      h += `<div class="recent-item"><span class="time">${fmtDate(r.ts)}</span><span class="action act-draft">Draft</span><span class="detail">${detail}</span></div>`;
+    });
+    h += '</div></div></div>';
+  }
+
+  document.getElementById('ds-tab').innerHTML = h;
+}
+
 function renderTM(d) {
   const tm = d.tm || {};
   let h = '<div class="grid">';
@@ -166,6 +218,7 @@ function renderTM(d) {
 function renderRecent(d) {
   const all = [];
   (d.rm?.recent||[]).forEach(r => all.push({...r, tool:'rm'}));
+  (d.ds?.recent||[]).forEach(r => all.push({...r, tool:'ds'}));
   (d.tm?.recent||[]).forEach(r => all.push({...r, tool:'tm'}));
   (d.compare?.recent||[]).forEach(r => all.push({...r, tool:'compare', action:'compare'}));
   all.sort((a,b) => new Date(b.ts) - new Date(a.ts));
@@ -174,6 +227,15 @@ function renderRecent(d) {
 
   all.slice(0,100).forEach(r => {
     const cls = r.action === 'draft' ? 'act-draft' : r.action === 'sign' ? 'act-sign' : r.action === 'waive' ? 'act-waive' : r.action?.startsWith('option') ? 'act-option' : r.action === 'trade' ? 'act-trade' : r.action === 'compare' ? 'act-compare' : 'act-sim';
+
+    // Source-tool badge so RM and DS entries are visually distinct in the
+    // unified feed (their per-tab cards remain fully separated).
+    const toolBadge = {
+      rm:      '<span style="font-family:\'JetBrains Mono\',monospace;font-size:.55rem;font-weight:700;color:var(--muted);background:#f3f4f6;padding:.1rem .35rem;border-radius:3px;margin-right:.25rem">RM</span>',
+      ds:      '<span style="font-family:\'JetBrains Mono\',monospace;font-size:.55rem;font-weight:700;color:#7c3aed;background:rgba(124,58,237,.1);padding:.1rem .35rem;border-radius:3px;margin-right:.25rem">DS</span>',
+      tm:      '<span style="font-family:\'JetBrains Mono\',monospace;font-size:.55rem;font-weight:700;color:var(--accent);background:var(--accent-dim);padding:.1rem .35rem;border-radius:3px;margin-right:.25rem">TM</span>',
+      compare: '<span style="font-family:\'JetBrains Mono\',monospace;font-size:.55rem;font-weight:700;color:#8b5cf6;background:rgba(139,92,246,.1);padding:.1rem .35rem;border-radius:3px;margin-right:.25rem">CMP</span>',
+    }[r.tool] || '';
 
     let label = r.action || '';
     let detail = '';
@@ -190,9 +252,11 @@ function renderRecent(d) {
       detail = [r.player, r.team].filter(Boolean).join(' · ');
       if (r.extra?.salary) detail += ` · $${(r.extra.salary/1e6).toFixed(1)}M`;
       if (r.extra?.pick) detail += ` · Pick #${r.extra.pick}`;
+      // DS recent items have pick at top level (not under .extra)
+      if (r.tool === 'ds' && r.pick) detail += ` · Pick #${r.pick}`;
     }
 
-    h += `<div class="recent-item"><span class="time">${fmtDate(r.ts)}</span><span class="action ${cls}">${label}</span><span class="detail">${detail}</span></div>`;
+    h += `<div class="recent-item"><span class="time">${fmtDate(r.ts)}</span>${toolBadge}<span class="action ${cls}">${label}</span><span class="detail">${detail}</span></div>`;
   });
 
   h += '</div></div></div>';
@@ -204,7 +268,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    ['rm','compare','tm','recent'].forEach(t => document.getElementById(t+'-tab').classList.add('hidden'));
+    ['rm','ds','compare','tm','recent'].forEach(t => document.getElementById(t+'-tab').classList.add('hidden'));
     document.getElementById(btn.dataset.tab+'-tab').classList.remove('hidden');
   });
 });
@@ -217,6 +281,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.getElementById('updated').textContent = d._updated ? 'Last updated: ' + fmtDate(d._updated) + ' ET' : '';
     renderTopStats(d);
     renderRM(d);
+    renderDS(d);
     renderCompare(d);
     renderTM(d);
     renderRecent(d);
