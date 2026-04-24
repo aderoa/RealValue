@@ -151,8 +151,8 @@ function renderDS(d) {
   // Most-drafted prospects in DS
   h += `<div class="card"><div class="card-hdr"><h2>🏀 Most Drafted Prospects</h2><div class="badge">${Object.keys(ds.drafted||{}).length} prospects</div></div><div class="card-body">${leaderboard(ds.drafted||{}, 'Prospect', 'Times Drafted')}</div></div>`;
 
-  // Drafts by team — how often each team's user has completed a draft
-  h += `<div class="card"><div class="card-hdr"><h2>🏟️ Drafts by Team</h2><div class="badge">${Object.keys(ds.byTeam||{}).length} teams</div></div><div class="card-body">${leaderboard(ds.byTeam||{}, 'Team', 'Picks Made')}</div></div>`;
+  // Drafts by team — how many sims have been completed as each team
+  h += `<div class="card"><div class="card-hdr"><h2>🏟️ Drafts by Team</h2><div class="badge">${Object.keys(ds.byTeam||{}).length} teams</div></div><div class="card-body">${leaderboard(ds.byTeam||{}, 'Team', 'Sims Run')}</div></div>`;
 
   // Most common pick at each lottery slot (1-14): find the top player per pick number
   const byPick = ds.byPick || {};
