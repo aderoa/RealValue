@@ -140,7 +140,7 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
 <div class="methodology">
   <h3>How Global Rating+ works</h3>
   <p>Global Rating+ takes each player's <strong>RAT 365</strong> (rolling last-365-days offensive/overall rating) and adds a <strong>defensive factor</strong> drawn from the <strong>Defensive_365</strong> ranking — the rolling-year defensive composite across all official games (Regular Season, NBA Cup, Play-In, Playoffs).</p>
-  <p>The defensive factor is the player's deviation from the league-average defensive score, scaled by a weight: <code>Def Boost = (DEF_SCORE − league avg) × weight</code>. An average defender gets ~0 boost (their Global Rating+ ≈ their RAT 365), elite defenders gain points, and weak defenders lose a little. The final number is simply <code>Global Rating+ = RAT 365 + Def Boost</code>.</p>
+  <p>The defensive factor is measured <strong>relative to the league-average defensive score</strong>, scaled down to a modest influence: <code>Def Boost = (DEF_SCORE − league avg) × 0.2</code>. So it <strong>adds</strong> for above-average defenders and <strong>subtracts</strong> for below-average ones — an average defender gets ≈0 and keeps their RAT 365 unchanged. The final number is <code>Global Rating+ = RAT 365 + Def Boost</code>.</p>
   <p>The Defensive_365 composite is on a fixed scale where ≈15 is average, mid-20s is an elite starter, and low-30s is DPOY-caliber.</p>
 </div>
 
@@ -153,9 +153,12 @@ const RATINGS_URL = PROXY_BASE + '/api/rm-tv';
 const DEFENSE_365_URL = PROXY_BASE + '/api/defense-365';
 
 // Weight on the defensive factor. The boost added to RAT 365 is
-// (DEF_SCORE − league avg) × DEF_WEIGHT. Tune to taste:
-//   0.5 = light tilt · 1.0 = full defensive deviation (default) · 1.5 = defense-forward.
-const DEF_WEIGHT = 1.0;
+// (DEF_SCORE − league avg) × DEF_WEIGHT — so it ADDS for above-average
+// defenders and SUBTRACTS for below-average ones, centered on the league
+// average. At 0.2 the defensive influence is a modest ~20% tilt: a player
+// 10 points above average defensively gains +2.0 to their rating.
+// Tune: 0.1 = very light · 0.2 = ~20% influence (default) · 0.5 = strong.
+const DEF_WEIGHT = 0.2;
 
 let appData = null;
 
