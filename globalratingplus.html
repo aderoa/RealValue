@@ -85,11 +85,8 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
   <div class="header-inner">
     <div class="header-brand"><h1>NBA Global Rating Plus</h1></div>
     <span class="tag">GR+</span>
-    <p class="header-subtitle">RAT 365 enhanced with the rolling last-365-days defensive ranking — all official games (Regular Season, NBA Cup, Play-In, Playoffs)</p>
   </div>
 </div>
-
-<div class="stats-bar" id="statsBar"></div>
 
 <div class="controls">
   <div class="search-box">
@@ -105,8 +102,6 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
     <select id="sortSelect" disabled>
       <option value="globalPlus-desc">Global Rating+ ↓</option>
       <option value="globalPlus-asc">Global Rating+ ↑</option>
-      <option value="rat365-desc">RAT 365 ↓</option>
-      <option value="rat365-asc">RAT 365 ↑</option>
       <option value="def365-desc">Def 365 ↓</option>
       <option value="def365-asc">Def 365 ↑</option>
       <option value="ppg-desc">PPG ↓</option>
@@ -125,14 +120,13 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
       <tr>
         <th class="col-rank">#</th>
         <th>Player</th>
+        <th style="text-align:right">Global Rating+</th>
         <th style="text-align:right" title="Games played in the last 365 days">GP</th>
         <th style="text-align:right" title="Minutes per game (last 365 days)">MPG</th>
         <th style="text-align:right" title="Points per game (last 365 days)">PPG</th>
         <th style="text-align:right" title="Rebounds per game (last 365 days)">RPG</th>
         <th style="text-align:right" title="Assists per game (last 365 days)">APG</th>
-        <th style="text-align:right">RAT 365</th>
         <th style="text-align:right" title="Defensive_365 composite score (≈15 avg, mid-20s elite, low-30s DPOY-level)">Def 365</th>
-        <th style="text-align:right">Global Rating+</th>
       </tr>
     </thead>
     <tbody id="tableBody"></tbody>
@@ -144,12 +138,7 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
   <p>Loading ratings…</p>
 </div>
 
-<div class="methodology">
-  <h3>How Global Rating+ works</h3>
-  <p>Global Rating+ takes each player's <strong>RAT 365</strong> (rolling last-365-days offensive/overall rating) and adds a <strong>defensive factor</strong> drawn from the <strong>Defensive_365</strong> ranking — the rolling-year defensive composite across all official games (Regular Season, NBA Cup, Play-In, Playoffs).</p>
-  <p>The defensive factor is measured <strong>relative to the league-average defensive score</strong>, scaled down to a modest influence: <code>Def Boost = (DEF_SCORE − league avg) × 0.2</code>. So it <strong>adds</strong> for above-average defenders and <strong>subtracts</strong> for below-average ones — an average defender gets ≈0 and keeps their RAT 365 unchanged. The final number is <code>Global Rating+ = RAT 365 + Def Boost</code>.</p>
-  <p>The Defensive_365 composite is on a fixed scale where ≈15 is average, mid-20s is an elite starter, and low-30s is DPOY-caliber.</p>
-</div>
+<div class="methodology" style="display:none"></div>
 
 <div class="footer">Hoopsmatic — NBA Global Rating Plus — Live data via HoopsMatic API</div>
 
@@ -289,14 +278,13 @@ function renderTable(players) {
     return `<tr>
       <td class="col-rank ${rankCls(p.rank)}">${p.rank}</td>
       <td class="col-player"><div class="player-name">${p.player}</div><div class="player-team">${p.team}</div></td>
+      <td class="col-num col-gr">${p.globalPlus.toFixed(2)}</td>
       <td class="col-num">${p.gp!==null && p.gp!==undefined ? Math.round(p.gp) : '—'}</td>
       <td class="col-num">${n(p.mpg)}</td>
       <td class="col-num">${n(p.ppg)}</td>
       <td class="col-num">${n(p.rpg)}</td>
       <td class="col-num">${n(p.apg)}</td>
-      <td class="col-num col-rat ${ratCls(p.rat365)}">${p.rat365.toFixed(2)}</td>
       <td class="col-num col-rat ${defCls(p.def365)}">${p.def365!==null?p.def365.toFixed(1):'—'}</td>
-      <td class="col-num col-gr">${p.globalPlus.toFixed(2)}</td>
     </tr>`;
   }).join('');
 }
@@ -353,7 +341,7 @@ async function init() {
     document.getElementById('sortSelect').disabled = false;
     document.getElementById('refreshBtn').disabled = false;
     populateTeamFilter(appData.players);
-    buildStats(appData);
+    // buildStats removed — stats-bar no longer rendered
     update();
     document.getElementById('searchInput').addEventListener('input', update);
     document.getElementById('teamFilter').addEventListener('change', update);
@@ -369,7 +357,7 @@ async function refreshData() {
   try {
     appData = await loadAll();
     populateTeamFilter(appData.players);
-    buildStats(appData);
+    // buildStats removed — stats-bar no longer rendered
     update();
     btn.textContent = '✅ Updated';
     setTimeout(() => { btn.textContent = '🔄 Refresh'; }, 1500);
