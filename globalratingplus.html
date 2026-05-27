@@ -109,8 +109,11 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
       <option value="rat365-asc">RAT 365 ↑</option>
       <option value="def365-desc">Def 365 ↓</option>
       <option value="def365-asc">Def 365 ↑</option>
-      <option value="defAdj-desc">Def Boost ↓</option>
-      <option value="defAdj-asc">Def Boost ↑</option>
+      <option value="ppg-desc">PPG ↓</option>
+      <option value="rpg-desc">RPG ↓</option>
+      <option value="apg-desc">APG ↓</option>
+      <option value="mpg-desc">MPG ↓</option>
+      <option value="gp-desc">GP ↓</option>
     </select>
   </div>
   <button class="ctrl-btn" id="refreshBtn" onclick="refreshData()" disabled>🔄 Refresh</button>
@@ -122,9 +125,13 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
       <tr>
         <th class="col-rank">#</th>
         <th>Player</th>
+        <th style="text-align:right" title="Games played in the last 365 days">GP</th>
+        <th style="text-align:right" title="Minutes per game (last 365 days)">MPG</th>
+        <th style="text-align:right" title="Points per game (last 365 days)">PPG</th>
+        <th style="text-align:right" title="Rebounds per game (last 365 days)">RPG</th>
+        <th style="text-align:right" title="Assists per game (last 365 days)">APG</th>
         <th style="text-align:right">RAT 365</th>
         <th style="text-align:right" title="Defensive_365 composite score (≈15 avg, mid-20s elite, low-30s DPOY-level)">Def 365</th>
-        <th style="text-align:right" title="Defensive boost/penalty added to RAT 365">Def Boost</th>
         <th style="text-align:right">Global Rating+</th>
       </tr>
     </thead>
@@ -186,7 +193,7 @@ function parseCSV(text) {
   return rows;
 }
 
-// ── Defensive_365 parser: { playerName: DEF_SCORE } ─────────
+// ── Defensive_365 parser: { playerName: {def, gp, mpg, ppg, rpg, apg} } ──
 function parseDef365(json) {
   const out = {};
   const rows = (json && json.values) ? json.values : null;
@@ -198,14 +205,25 @@ function parseDef365(json) {
   }
   if (headerIdx < 0) return out;
   const header = rows[headerIdx].map(h => (h || '').toString().trim().toUpperCase());
-  const nameCol = header.indexOf('PLAYER');
-  const scoreCol = header.indexOf('DEF_SCORE');
+  const col = (name) => header.indexOf(name);
+  const nameCol = col('PLAYER'), scoreCol = col('DEF_SCORE');
+  const gpCol = col('GP'), mpgCol = col('MPG'), ppgCol = col('PPG'), rpgCol = col('RPG'), apgCol = col('APG');
   if (nameCol < 0 || scoreCol < 0) return out;
+  const num = (row, c) => { if (c < 0) return null; const v = parseFloat(row[c]); return isNaN(v) ? null : v; };
   for (let r = headerIdx + 1; r < rows.length; r++) {
     const row = rows[r] || [];
     const name = (row[nameCol] || '').toString().trim();
     const score = parseFloat(row[scoreCol]);
-    if (name && !isNaN(score)) out[name] = score;
+    if (name && !isNaN(score)) {
+      out[name] = {
+        def: score,
+        gp:  num(row, gpCol),
+        mpg: num(row, mpgCol),
+        ppg: num(row, ppgCol),
+        rpg: num(row, rpgCol),
+        apg: num(row, apgCol),
+      };
+    }
   }
   return out;
 }
@@ -224,13 +242,19 @@ function processData(ratingsRows, def365Map) {
   }
 
   // League-average DEF_SCORE for the deviation baseline.
-  const dVals = Object.values(def365Map).filter(v => typeof v === 'number' && !isNaN(v));
+  const dVals = Object.values(def365Map).map(o => o && o.def).filter(v => typeof v === 'number' && !isNaN(v));
   const dHas = dVals.length > 0;
   const dAvg = dHas ? dVals.reduce((s,v) => s+v, 0) / dVals.length : 0;
 
   for (const p of roster) {
-    const ds = def365Map[p.player];
-    p.def365 = (typeof ds === 'number' && !isNaN(ds)) ? ds : null;
+    const ds = def365Map[p.player] || null;
+    p.def365 = (ds && typeof ds.def === 'number') ? ds.def : null;
+    // 365 box-score stats (from the same Defensive_365 tab).
+    p.gp  = ds ? ds.gp  : null;
+    p.mpg = ds ? ds.mpg : null;
+    p.ppg = ds ? ds.ppg : null;
+    p.rpg = ds ? ds.rpg : null;
+    p.apg = ds ? ds.apg : null;
     // Def boost = how far above/below league average, times the weight.
     p.defAdj = (dHas && p.def365 !== null) ? (p.def365 - dAvg) * DEF_WEIGHT : 0;
     p.globalPlus = p.rat365 + p.defAdj;
@@ -260,16 +284,18 @@ function buildStats(d) {
 
 function renderTable(players) {
   const tb = document.getElementById('tableBody');
+  const n = (v, d=1) => (v===null || v===undefined || isNaN(v)) ? '—' : v.toFixed(d);
   tb.innerHTML = players.map(p => {
-    const adjStr = Math.abs(p.defAdj) >= 0.05
-      ? `<span class="${p.defAdj>0?'def-adj-pos':'def-adj-neg'}">${p.defAdj>0?'+':''}${p.defAdj.toFixed(1)}</span>`
-      : '<span style="color:var(--text-muted)">—</span>';
     return `<tr>
       <td class="col-rank ${rankCls(p.rank)}">${p.rank}</td>
       <td class="col-player"><div class="player-name">${p.player}</div><div class="player-team">${p.team}</div></td>
+      <td class="col-num">${p.gp!==null && p.gp!==undefined ? Math.round(p.gp) : '—'}</td>
+      <td class="col-num">${n(p.mpg)}</td>
+      <td class="col-num">${n(p.ppg)}</td>
+      <td class="col-num">${n(p.rpg)}</td>
+      <td class="col-num">${n(p.apg)}</td>
       <td class="col-num col-rat ${ratCls(p.rat365)}">${p.rat365.toFixed(2)}</td>
       <td class="col-num col-rat ${defCls(p.def365)}">${p.def365!==null?p.def365.toFixed(1):'—'}</td>
-      <td class="col-num">${adjStr}</td>
       <td class="col-num col-gr">${p.globalPlus.toFixed(2)}</td>
     </tr>`;
   }).join('');
