@@ -246,7 +246,11 @@ function processData(ratingsRows, def365Map) {
     p.apg = ds ? ds.apg : null;
     // Def boost = how far above/below league average, times the weight.
     p.defAdj = (dHas && p.def365 !== null) ? (p.def365 - dAvg) * DEF_WEIGHT : 0;
-    p.globalPlus = p.rat365 + p.defAdj;
+    // Apply a uniform +1.5 baseline shift so a smaller, more selective set of
+    // genuinely below-replacement players end up negative. The relative
+    // spacing between every player is preserved — this is a pure additive
+    // floor adjustment, not a clamp.
+    p.globalPlus = p.rat365 + p.defAdj + 1.5;
   }
 
   roster.sort((a,b) => b.globalPlus - a.globalPlus);
