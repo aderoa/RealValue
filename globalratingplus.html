@@ -33,6 +33,10 @@ body { font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif; backgr
 .stat-card .value .unit { font-size:0.8rem; font-weight:400; color:var(--text2); }
 
 .controls { max-width:1200px; margin:1.25rem auto 0; padding:0 2rem; display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center; }
+.phase-bar { max-width:1200px; margin:0.5rem auto 0; padding:0 2rem; display:flex; gap:0.4rem; flex-wrap:wrap; }
+.phase-btn { font-family:inherit; font-size:0.78rem; font-weight:600; padding:0.5rem 1rem; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--text2); cursor:pointer; transition:all 0.15s; }
+.phase-btn:hover { border-color:var(--accent); color:var(--accent); }
+.phase-btn.active { background:var(--accent-dim); border-color:var(--accent); color:var(--accent); }
 .search-box { flex:1; min-width:200px; position:relative; }
 .search-box input { width:100%; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.85rem 0.55rem 2.3rem; color:var(--text); font-family:inherit; font-size:0.85rem; outline:none; transition:border-color 0.2s; }
 .search-box input:focus { border-color:var(--accent); }
@@ -86,6 +90,12 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
     <div class="header-brand"><h1>NBA Global Rating Plus</h1></div>
     <span class="tag">GR+</span>
   </div>
+</div>
+
+<div class="phase-bar">
+  <button class="phase-btn" data-phase="rs">Regular Season</button>
+  <button class="phase-btn" data-phase="po">Playoffs</button>
+  <button class="phase-btn active" data-phase="365">Last 365</button>
 </div>
 
 <div class="controls">
@@ -146,7 +156,15 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
 // ── Config ──────────────────────────────────────────────────
 const PROXY_BASE = 'https://hoopsmatic.com';
 const RATINGS_URL = PROXY_BASE + '/api/rm-tv';
-const DEFENSE_365_URL = PROXY_BASE + '/api/defense-365';
+// Each phase points at the matching Defensive_* tab proxy. The page's
+// defensive component + box-score stats come from whichever tab is active;
+// the offensive base (RAT 365) stays constant across phases.
+const DEFENSE_ENDPOINTS = {
+  '365': PROXY_BASE + '/api/defense-365',
+  'rs':  PROXY_BASE + '/api/defense-data',
+  'po':  PROXY_BASE + '/api/defense-po',
+};
+const VALID_PHASES = ['rs', 'po', '365'];
 
 // Weight on the defensive factor. The boost added to RAT 365 is
 // (DEF_SCORE − league avg) × DEF_WEIGHT — so it ADDS for above-average
@@ -155,6 +173,13 @@ const DEFENSE_365_URL = PROXY_BASE + '/api/defense-365';
 // 10 points above average defensively gains +2.0 to their rating.
 // Tune: 0.1 = very light · 0.2 = ~20% influence (default) · 0.5 = strong.
 const DEF_WEIGHT = 0.2;
+
+// Read phase from URL (?phase=rs|po|365). Default to 365.
+function currentPhase() {
+  const p = (new URLSearchParams(location.search).get('phase') || '365').toLowerCase();
+  return VALID_PHASES.includes(p) ? p : '365';
+}
+let PHASE = currentPhase();
 
 let appData = null;
 
@@ -201,6 +226,11 @@ function parseDef365(json) {
   const num = (row, c) => { if (c < 0) return null; const v = parseFloat(row[c]); return isNaN(v) ? null : v; };
   for (let r = headerIdx + 1; r < rows.length; r++) {
     const row = rows[r] || [];
+    // Stop when we hit the next section marker (e.g. [LAST_30D]) — the
+    // Defensive_Rankings tab has multiple periods stacked, but we only want
+    // the first (Season).
+    const firstCell = (row[0] || '').toString().trim();
+    if (firstCell.startsWith('[') && firstCell.endsWith(']')) break;
     const name = (row[nameCol] || '').toString().trim();
     const score = parseFloat(row[scoreCol]);
     if (name && !isNaN(score)) {
@@ -319,24 +349,26 @@ function populateTeamFilter(players) {
 
 // ── Data loading ────────────────────────────────────────────
 async function loadAll() {
-  const [res, d365Res] = await Promise.all([
+  const defenseUrl = DEFENSE_ENDPOINTS[PHASE] || DEFENSE_ENDPOINTS['365'];
+  const [res, dRes] = await Promise.all([
     fetch(RATINGS_URL),
-    fetch(DEFENSE_365_URL).catch(e => { console.warn('[Defense365] Fetch failed:', e.message); return null; })
+    fetch(defenseUrl).catch(e => { console.warn('[Defense ' + PHASE + '] Fetch failed:', e.message); return null; })
   ]);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const ratingsRows = parseCSV(await res.text());
-  let def365Map = {};
-  if (d365Res && d365Res.ok) {
-    try { def365Map = parseDef365(await d365Res.json()); console.log('[Defense365] Map has', Object.keys(def365Map).length, 'players'); }
-    catch(e) { console.warn('[Defense365] Parse error:', e.message); }
+  let defMap = {};
+  if (dRes && dRes.ok) {
+    try { defMap = parseDef365(await dRes.json()); console.log('[Defense ' + PHASE + '] Map has', Object.keys(defMap).length, 'players'); }
+    catch(e) { console.warn('[Defense ' + PHASE + '] Parse error:', e.message); }
   } else {
-    console.warn('[Defense365] No data — Global Rating+ falls back to RAT 365 only. Run pipeline with --include-365 and visit /defense/365 to populate.');
+    console.warn('[Defense ' + PHASE + '] No data — Global Rating+ falls back to RAT 365 only.');
   }
-  return processData(ratingsRows, def365Map);
+  return processData(ratingsRows, defMap);
 }
 
 async function init() {
   try {
+    syncPhasePills();
     appData = await loadAll();
     document.getElementById('loadingArea').style.display = 'none';
     document.getElementById('tableContainer').style.display = 'block';
@@ -345,13 +377,46 @@ async function init() {
     document.getElementById('sortSelect').disabled = false;
     document.getElementById('refreshBtn').disabled = false;
     populateTeamFilter(appData.players);
-    // buildStats removed — stats-bar no longer rendered
     update();
     document.getElementById('searchInput').addEventListener('input', update);
     document.getElementById('teamFilter').addEventListener('change', update);
     document.getElementById('sortSelect').addEventListener('change', update);
+    document.querySelectorAll('.phase-btn').forEach(btn => {
+      btn.addEventListener('click', () => setPhase(btn.dataset.phase));
+    });
   } catch(err) {
     document.getElementById('loadingArea').innerHTML = `<div class="error-msg">Failed to load ratings: ${err.message}</div>`;
+  }
+}
+
+// Reflect the active phase on the pill bar.
+function syncPhasePills() {
+  document.querySelectorAll('.phase-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.phase === PHASE);
+  });
+}
+
+// Switch phase: update URL (no reload), reload data for the new tab, rerender.
+async function setPhase(newPhase) {
+  if (!VALID_PHASES.includes(newPhase) || newPhase === PHASE) return;
+  PHASE = newPhase;
+  syncPhasePills();
+  // Update URL so the choice is shareable (push state, no reload).
+  const url = new URL(location.href);
+  if (PHASE === '365') url.searchParams.delete('phase'); else url.searchParams.set('phase', PHASE);
+  history.replaceState(null, '', url.toString());
+  // Show loading overlay while we re-fetch.
+  document.getElementById('tableContainer').style.display = 'none';
+  document.getElementById('loadingArea').style.display = '';
+  try {
+    appData = await loadAll();
+    populateTeamFilter(appData.players);
+    document.getElementById('loadingArea').style.display = 'none';
+    document.getElementById('tableContainer').style.display = 'block';
+    update();
+  } catch(err) {
+    document.getElementById('loadingArea').innerHTML = `<div class="error-msg">Failed to load ${PHASE} ratings: ${err.message}</div>`;
+    document.getElementById('loadingArea').style.display = '';
   }
 }
 
