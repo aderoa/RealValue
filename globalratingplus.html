@@ -156,6 +156,10 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
 // ── Config ──────────────────────────────────────────────────
 const PROXY_BASE = 'https://hoopsmatic.com';
 const RATINGS_URL = PROXY_BASE + '/api/rm-tv';
+// Per-phase RAT base: Sheet8 has two side-by-side blocks — left (cols 0-2) is
+// postseason (RAT_PO), right (cols 6-8) is regular season (RAT_RS). Used by
+// RS and PO phases; the 365 phase keeps using RATINGS_URL above.
+const RAT_BASE_URL = PROXY_BASE + '/api/rm-rat-base';
 // Each phase points at the matching Defensive_* tab proxy. The page's
 // defensive component + box-score stats come from whichever tab is active;
 // the offensive base (RAT 365) stays constant across phases.
@@ -247,8 +251,31 @@ function parseDef365(json) {
   return out;
 }
 
+// ── Sheet8 parser: left block (cols 0-2) = postseason RAT, right block ───
+// (cols 6-8) = regular season RAT. Returns { rs: {name: rat}, po: {name: rat} }.
+// First row is "PLAYER,RAT,G,,,,PLAYER,RAT,G".
+function parseRatBase(csvText) {
+  const out = { rs: {}, po: {} };
+  const rows = parseCSV(csvText);
+  if (!rows || rows.length < 2) return out;
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i] || [];
+    const poName = (row[0] || '').trim();
+    const poRat = parseFloat(row[1]);
+    if (poName && !isNaN(poRat)) out.po[poName] = poRat;
+    const rsName = (row[6] || '').trim();
+    const rsRat = parseFloat(row[7]);
+    if (rsName && !isNaN(rsRat)) out.rs[rsName] = rsRat;
+  }
+  return out;
+}
+
 // ── Build the rating ────────────────────────────────────────
-function processData(ratingsRows, def365Map) {
+// ratBaseMap: { playerName: ratValue } for the active phase. For 365 it's the
+// RAT 365 from rm-tv; for RS/PO it's the matching block from Sheet8. Falls
+// back to whatever's in `ratingsRows` (RAT 365) if a player is missing from
+// the phase-specific sheet.
+function processData(ratingsRows, def365Map, ratBaseMap) {
   const dataRows = ratingsRows.slice(1);
   const roster = [];
   // Ratings sheet (rm-tv): col 0 = TEAM, col 1 = PLAYER, col 2 = RAT 365.
@@ -260,6 +287,16 @@ function processData(ratingsRows, def365Map) {
     if (team && player) roster.push({ team, player, rat365 });
   }
 
+  // Pick the RAT base per phase. If the phase-specific map has the player,
+  // use it; otherwise fall back to RAT 365 so they still rank reasonably.
+  const useBase = (ratBaseMap && Object.keys(ratBaseMap).length > 0);
+  for (const p of roster) {
+    p.ratBase = (useBase && typeof ratBaseMap[p.player] === 'number')
+      ? ratBaseMap[p.player]
+      : p.rat365;
+  }
+  if (useBase) console.log('[GR+] Phase=' + PHASE + ' — base RAT mapped for ' + Object.keys(ratBaseMap).length + ' players');
+
   // League-average DEF_SCORE for the deviation baseline.
   const dVals = Object.values(def365Map).map(o => o && o.def).filter(v => typeof v === 'number' && !isNaN(v));
   const dHas = dVals.length > 0;
@@ -268,30 +305,24 @@ function processData(ratingsRows, def365Map) {
   for (const p of roster) {
     const ds = def365Map[p.player] || null;
     p.def365 = (ds && typeof ds.def === 'number') ? ds.def : null;
-    // 365 box-score stats (from the same Defensive_365 tab).
     p.gp  = ds ? ds.gp  : null;
     p.mpg = ds ? ds.mpg : null;
     p.ppg = ds ? ds.ppg : null;
     p.rpg = ds ? ds.rpg : null;
     p.apg = ds ? ds.apg : null;
-    // Def boost = how far above/below league average, times the weight.
     p.defAdj = (dHas && p.def365 !== null) ? (p.def365 - dAvg) * DEF_WEIGHT : 0;
-    // Apply a uniform +1.5 baseline shift so a smaller, more selective set of
-    // genuinely below-replacement players end up negative. The relative
-    // spacing between every player is preserved — this is a pure additive
-    // floor adjustment, not a clamp.
-    p.globalPlus = p.rat365 + p.defAdj + 1.5;
+    // Use the phase-specific RAT base; +1.5 floor adjustment preserved.
+    p.globalPlus = p.ratBase + p.defAdj + 1.5;
   }
 
   // For RS and Playoffs phases, only include players who actually have an
   // entry in that phase's defensive tab — i.e. they played enough games to
-  // qualify for that ranking (the pipeline filters by qual_gp/qual_mpg). This
-  // prevents e.g. Luka (who didn't play playoffs) from ranking in the PO view
-  // purely on his RAT 365 + the floor. For 365 we keep everyone since the
-  // rolling window covers nearly all active players.
+  // qualify for that ranking. AND require a phase-specific RAT (so a player
+  // with playoff defense but no playoff offense ranking doesn't sneak in via
+  // their RAT 365 fallback).
   let filtered = roster;
   if (PHASE === 'rs' || PHASE === 'po') {
-    filtered = roster.filter(p => p.def365 !== null);
+    filtered = roster.filter(p => p.def365 !== null && (!useBase || typeof ratBaseMap[p.player] === 'number'));
   }
 
   filtered.sort((a,b) => b.globalPlus - a.globalPlus);
@@ -361,9 +392,13 @@ function populateTeamFilter(players) {
 // ── Data loading ────────────────────────────────────────────
 async function loadAll() {
   const defenseUrl = DEFENSE_ENDPOINTS[PHASE] || DEFENSE_ENDPOINTS['365'];
-  const [res, dRes] = await Promise.all([
+  const needRatBase = (PHASE === 'rs' || PHASE === 'po');
+  const [res, dRes, rbRes] = await Promise.all([
     fetch(RATINGS_URL),
-    fetch(defenseUrl).catch(e => { console.warn('[Defense ' + PHASE + '] Fetch failed:', e.message); return null; })
+    fetch(defenseUrl).catch(e => { console.warn('[Defense ' + PHASE + '] Fetch failed:', e.message); return null; }),
+    needRatBase
+      ? fetch(RAT_BASE_URL).catch(e => { console.warn('[RatBase] Fetch failed:', e.message); return null; })
+      : Promise.resolve(null)
   ]);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const ratingsRows = parseCSV(await res.text());
@@ -374,7 +409,16 @@ async function loadAll() {
   } else {
     console.warn('[Defense ' + PHASE + '] No data — Global Rating+ falls back to RAT 365 only.');
   }
-  return processData(ratingsRows, defMap);
+  // Phase-specific RAT base (RS or PO). For 365 we pass null so rat365 is used.
+  let ratBaseMap = null;
+  if (needRatBase && rbRes && rbRes.ok) {
+    try {
+      const parsed = parseRatBase(await rbRes.text());
+      ratBaseMap = (PHASE === 'rs') ? parsed.rs : parsed.po;
+      console.log('[RatBase] ' + PHASE + ' map: ' + Object.keys(ratBaseMap).length + ' players');
+    } catch(e) { console.warn('[RatBase] Parse error:', e.message); }
+  }
+  return processData(ratingsRows, defMap, ratBaseMap);
 }
 
 async function init() {
