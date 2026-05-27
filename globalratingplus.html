@@ -283,10 +283,21 @@ function processData(ratingsRows, def365Map) {
     p.globalPlus = p.rat365 + p.defAdj + 1.5;
   }
 
-  roster.sort((a,b) => b.globalPlus - a.globalPlus);
-  roster.forEach((p,i) => p.rank = i + 1);
+  // For RS and Playoffs phases, only include players who actually have an
+  // entry in that phase's defensive tab — i.e. they played enough games to
+  // qualify for that ranking (the pipeline filters by qual_gp/qual_mpg). This
+  // prevents e.g. Luka (who didn't play playoffs) from ranking in the PO view
+  // purely on his RAT 365 + the floor. For 365 we keep everyone since the
+  // rolling window covers nearly all active players.
+  let filtered = roster;
+  if (PHASE === 'rs' || PHASE === 'po') {
+    filtered = roster.filter(p => p.def365 !== null);
+  }
 
-  return { players: roster, defAvg: dAvg, defHasData: dHas };
+  filtered.sort((a,b) => b.globalPlus - a.globalPlus);
+  filtered.forEach((p,i) => p.rank = i + 1);
+
+  return { players: filtered, defAvg: dAvg, defHasData: dHas };
 }
 
 // ── Rendering ───────────────────────────────────────────────
