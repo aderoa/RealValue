@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NBA Global Rating Plus — 2026 Playoffs — Hoopsmatic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* === HOOPSMATIC DESIGN SYSTEM v1.0 — mirrors globalratingplus.html === */
+:root {
+  --bg: #f8f9fa; --surface: #fff; --surface2: #f3f4f6;
+  --border: #e2e5e9; --text: #1a1a2e; --text2: #5a6070; --text-muted: #8892a6;
+  --accent: #3b82f6; --accent-dim: rgba(59,130,246,0.07);
+  --accent-gold: #f0b637; --accent-cyan: #0ea5e9;
+  --green: #16a34a; --red: #dc2626; --orange: #f59e0b;
+  --pos: #10b981; --neg: #ef4444;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg); color:var(--text); min-height:100vh; line-height:1.5; }
+::-webkit-scrollbar{height:5px;width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:3px}
+
+.header { padding:1.5rem 2rem 0.75rem; }
+.header-inner { max-width:1200px; margin:0 auto; display:flex; align-items:baseline; gap:0.75rem; flex-wrap:wrap; }
+.header h1, .header-brand h1 { font-weight:800; font-size:1.5rem; letter-spacing:-0.02em; color:var(--text); }
+.header .tag { font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--accent); background:var(--accent-dim); padding:0.2em 0.6em; border-radius:4px; letter-spacing:0.04em; }
+.header-subtitle { color:var(--text2); font-size:0.85rem; }
+.header-back { font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--text-muted); text-decoration:none; padding:0.3em 0.6em; border:1px solid var(--border); border-radius:6px; transition:color .15s,border-color .15s; }
+.header-back:hover { color:var(--accent); border-color:var(--accent); }
+
+.section-title { max-width:1200px; margin:1.75rem auto 0.65rem; padding:0 2rem; display:flex; align-items:baseline; gap:0.75rem; }
+.section-title h2 { font-weight:700; font-size:1.1rem; color:var(--text); letter-spacing:-0.01em; }
+.section-title .sub { font-size:0.78rem; color:var(--text-muted); }
+
+.table-container { max-width:1200px; margin:0 auto; padding:0 2rem; overflow-x:auto; }
+table { width:100%; border-collapse:collapse; font-size:0.82rem; }
+thead th { background:var(--surface2); font-family:'JetBrains Mono',monospace; font-size:0.62rem; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); padding:0.6rem 0.5rem; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; }
+tbody tr { border-bottom:1px solid var(--border); transition:background 0.12s; }
+tbody tr:hover { background:rgba(59,130,246,0.03); }
+tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
+
+.col-rank { width:55px; text-align:center; font-weight:700; font-size:0.95rem; }
+.rank-top5 { color:var(--accent-gold); } .rank-top20 { color:var(--accent); } .rank-top50 { color:var(--accent-cyan); }
+.col-player { min-width:200px; }
+.player-name { font-weight:600; font-size:0.88rem; }
+.player-team { font-size:0.72rem; color:var(--text2); margin-top:0.05rem; display:flex; align-items:center; gap:0.3rem; }
+.player-team img { width:13px; height:13px; vertical-align:middle; }
+.col-num { text-align:right; font-family:'JetBrains Mono',monospace; font-size:0.82rem; }
+.col-rat { font-weight:600; }
+.rat-elite { color:#b45309; } .rat-star { color:var(--accent); } .rat-solid { color:var(--accent-cyan); } .rat-avg { color:var(--text); } .rat-low { color:var(--text-muted); }
+.col-gr { font-weight:700; font-size:0.9rem; }
+
+/* === Team Grid === */
+.teams-grid { max-width:1200px; margin:0.5rem auto 2.5rem; padding:0 2rem; display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+.team-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem 0.6rem; }
+.team-card-head { display:flex; align-items:center; gap:0.6rem; padding-bottom:0.65rem; border-bottom:1px solid var(--border); margin-bottom:0.45rem; }
+.team-card-head img { width:32px; height:32px; flex-shrink:0; }
+.team-card-head .name { font-weight:700; font-size:1rem; color:var(--text); }
+.team-card-head .abbrev { font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:var(--text-muted); letter-spacing:0.04em; }
+.team-card-head .topgr { margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--text-muted); }
+.team-card-head .topgr b { color:var(--text); font-weight:600; }
+.team-tbl { width:100%; border-collapse:collapse; font-size:0.8rem; }
+.team-tbl td { padding:0.35rem 0.35rem; border-bottom:1px solid var(--border); }
+.team-tbl tr:last-child td { border-bottom:none; }
+.team-tbl .tt-rank { width:24px; color:var(--text-muted); font-family:'JetBrains Mono',monospace; font-size:0.7rem; text-align:right; }
+.team-tbl .tt-name { font-weight:600; font-size:0.82rem; }
+.team-tbl .tt-gr { width:60px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:0.78rem; font-weight:700; }
+.team-tbl .tt-stat { width:48px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--text2); }
+
+.loading-state { text-align:center; padding:4rem 2rem; color:var(--text2); }
+.loading-spinner { display:inline-block; width:36px; height:36px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:hmSpin 0.8s linear infinite; margin:0 auto 1rem; }
+@keyframes hmSpin { to { transform:rotate(360deg); } }
+.error-msg { color:var(--red); max-width:600px; margin:0 auto; text-align:center; }
+
+.footer { max-width:1200px; margin:0 auto; padding:1.5rem 2rem 2.5rem; text-align:center; font-size:0.75rem; color:var(--text-muted); border-top:1px solid var(--border); }
+
+@media(max-width:900px) {
+  .teams-grid { grid-template-columns:1fr; gap:0.75rem; }
+}
+@media(max-width:600px) {
+  .header{padding:1.25rem 1rem 1rem;} .header h1{font-size:1.25rem;}
+  .table-container{padding:0 0.5rem;} td,th{padding:0.4rem 0.35rem;}
+  .section-title{padding:0 1rem;} .teams-grid{padding:0 0.75rem;}
+  .team-card{padding:0.85rem 0.75rem 0.4rem;}
+  .team-tbl .tt-stat{display:none;}
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="header-brand"><h1>NBA Global Rating Plus — 2026 Playoffs</h1></div>
+    <span class="tag">GR+ PO</span>
+    <a class="header-back" href="/GlobalRatingPlus?phase=po">← Full GR+ Playoffs leaderboard</a>
+  </div>
+</div>
+
+<div class="loading-state" id="loadingArea">
+  <div class="loading-spinner"></div>
+  <p>Loading 2026 Playoffs ratings…</p>
+</div>
+
+<!-- ===== Top-30 Overall ===== -->
+<div id="top30Wrap" style="display:none">
+  <div class="section-title">
+    <h2>Top 30 — Global Rating Plus, 2026 Playoffs</h2>
+    <span class="sub" id="top30Meta"></span>
+  </div>
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th class="col-rank">#</th>
+          <th>Player</th>
+          <th style="text-align:right">Global Rating+</th>
+          <th style="text-align:right" title="Playoff games played">GP</th>
+          <th style="text-align:right" title="Minutes per game in the playoffs">MPG</th>
+          <th style="text-align:right" title="Points per game in the playoffs">PPG</th>
+          <th style="text-align:right" title="Rebounds per game in the playoffs">RPG</th>
+          <th style="text-align:right" title="Assists per game in the playoffs">APG</th>
+          <th style="text-align:right" title="Playoff DEF_SCORE composite (≈15 avg, mid-20s elite, low-30s DPOY-level)">Def PO</th>
+        </tr>
+      </thead>
+      <tbody id="top30Body"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===== Per-Team Top 15 ===== -->
+<div id="teamsWrap" style="display:none">
+  <div class="section-title">
+    <h2>Top 15 by team — 2026 Playoffs</h2>
+    <span class="sub" id="teamsMeta"></span>
+  </div>
+  <div class="teams-grid" id="teamsGrid"></div>
+</div>
+
+<div class="footer">Hoopsmatic — NBA Global Rating Plus — 2026 Playoffs — Live data via HoopsMatic API</div>
+
+<script>
+// ──────────────────────────────────────────────────────────────
+// Config — same data sources as /GlobalRatingPlus?phase=po
+// ──────────────────────────────────────────────────────────────
+const PROXY_BASE = 'https://hoopsmatic.com';
+const RATINGS_URL  = PROXY_BASE + '/api/rm-tv';        // Sheet3 (RAT 365) — used only as a fallback name source
+const RAT_BASE_URL = PROXY_BASE + '/api/rm-rat-base';  // Sheet8 (PO RAT in left block)
+const DEFENSE_URL  = PROXY_BASE + '/api/defense-po';   // Defensive_Playoffs
+const DEF_WEIGHT   = 0.2;
+const RAT_FLOOR_ADJ = 1.5;
+
+// NBA team-id map for logo URLs. /api/logo proxies the NBA CDN.
+const NBA_TEAM_ID = {
+  ATL:1610612737, BOS:1610612738, BKN:1610612751, CHA:1610612766,
+  CHI:1610612741, CLE:1610612739, DAL:1610612742, DEN:1610612743,
+  DET:1610612765, GSW:1610612744, HOU:1610612745, IND:1610612754,
+  LAC:1610612746, LAL:1610612747, MEM:1610612763, MIA:1610612748,
+  MIL:1610612749, MIN:1610612750, NOP:1610612740, NYK:1610612752,
+  OKC:1610612760, ORL:1610612753, PHI:1610612755, PHX:1610612756,
+  POR:1610612757, SAC:1610612758, SAS:1610612759, TOR:1610612761,
+  UTA:1610612762, WAS:1610612764
+};
+const TEAM_FULL = {
+  ATL:'Atlanta Hawks', BOS:'Boston Celtics', BKN:'Brooklyn Nets', CHA:'Charlotte Hornets',
+  CHI:'Chicago Bulls', CLE:'Cleveland Cavaliers', DAL:'Dallas Mavericks', DEN:'Denver Nuggets',
+  DET:'Detroit Pistons', GSW:'Golden State Warriors', HOU:'Houston Rockets', IND:'Indiana Pacers',
+  LAC:'LA Clippers', LAL:'Los Angeles Lakers', MEM:'Memphis Grizzlies', MIA:'Miami Heat',
+  MIL:'Milwaukee Bucks', MIN:'Minnesota Timberwolves', NOP:'New Orleans Pelicans',
+  NYK:'New York Knicks', OKC:'Oklahoma City Thunder', ORL:'Orlando Magic',
+  PHI:'Philadelphia 76ers', PHX:'Phoenix Suns', POR:'Portland Trail Blazers',
+  SAC:'Sacramento Kings', SAS:'San Antonio Spurs', TOR:'Toronto Raptors',
+  UTA:'Utah Jazz', WAS:'Washington Wizards'
+};
+function logoUrl(abbr) {
+  const id = NBA_TEAM_ID[abbr];
+  return id ? `${PROXY_BASE}/api/logo?teamId=${id}` : '';
+}
+
+// ──────────────────────────────────────────────────────────────
+// CSV parser (same as main GR+ page)
+// ──────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const rows = []; let current = '', inQuotes = false, row = [];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"' && text[i+1] === '"') { current += '"'; i++; }
+      else if (ch === '"') inQuotes = false;
+      else current += ch;
+    } else {
+      if (ch === '"') inQuotes = true;
+      else if (ch === ',') { row.push(current.trim()); current = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i+1] === '\n') i++;
+        row.push(current.trim());
+        if (row.length > 1 || row[0] !== '') rows.push(row);
+        row = []; current = '';
+      } else current += ch;
+    }
+  }
+  if (current || row.length > 0) { row.push(current.trim()); if (row.length > 1 || row[0] !== '') rows.push(row); }
+  return rows;
+}
+
+// ──────────────────────────────────────────────────────────────
+// Defensive_Playoffs parser — returns { playerName: {team, def, gp, mpg, ppg, rpg, apg} }
+// Differs from the main page parser: we KEEP the TEAM column so we can group
+// by playoff team rather than current roster team.
+// ──────────────────────────────────────────────────────────────
+function parseDefPO(json) {
+  const out = {};
+  const rows = (json && json.values) ? json.values : null;
+  if (!rows || rows.length < 3) return out;
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 6); i++) {
+    const cells = (rows[i] || []).map(c => (c || '').toString().trim().toUpperCase());
+    if (cells.includes('PLAYER') && cells.includes('DEF_SCORE')) { headerIdx = i; break; }
+  }
+  if (headerIdx < 0) return out;
+  const header = rows[headerIdx].map(h => (h || '').toString().trim().toUpperCase());
+  const col = n => header.indexOf(n);
+  const cName=col('PLAYER'), cTeam=col('TEAM'), cScore=col('DEF_SCORE');
+  const cGp=col('GP'), cMpg=col('MPG'), cPpg=col('PPG'), cRpg=col('RPG'), cApg=col('APG');
+  if (cName<0 || cScore<0) return out;
+  const num = (row, c) => { if (c<0) return null; const v=parseFloat(row[c]); return isNaN(v)?null:v; };
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const row = rows[r] || [];
+    const firstCell = (row[0] || '').toString().trim();
+    if (firstCell.startsWith('[') && firstCell.endsWith(']')) break;
+    const name = (row[cName] || '').toString().trim();
+    const team = cTeam>=0 ? (row[cTeam] || '').toString().trim().toUpperCase() : '';
+    const score = parseFloat(row[cScore]);
+    if (name && !isNaN(score)) {
+      out[name] = {
+        team, def:score,
+        gp:num(row,cGp), mpg:num(row,cMpg),
+        ppg:num(row,cPpg), rpg:num(row,cRpg), apg:num(row,cApg)
+      };
+    }
+  }
+  return out;
+}
+
+// Sheet8 — left block (cols 0-2) = PO RAT. We only need the PO block here.
+function parsePoRatBase(csvText) {
+  const out = {};
+  const rows = parseCSV(csvText);
+  if (!rows || rows.length < 2) return out;
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i] || [];
+    const name = (row[0] || '').trim();
+    const rat = parseFloat(row[1]);
+    if (name && !isNaN(rat)) out[name] = rat;
+  }
+  return out;
+}
+
+// ──────────────────────────────────────────────────────────────
+// Compute GR+ for each player. Mirrors processData() from the main page
+// with phase=po, but pulls TEAM from defense-po.
+// ──────────────────────────────────────────────────────────────
+function buildPlayers(defMap, poRatMap) {
+  // League-avg DEF_SCORE for the deviation baseline.
+  const dVals = Object.values(defMap).map(o => o && o.def).filter(v => typeof v === 'number' && !isNaN(v));
+  const dAvg = dVals.length ? (dVals.reduce((s,v) => s+v, 0) / dVals.length) : 0;
+
+  const out = [];
+  for (const name in defMap) {
+    const d = defMap[name];
+    // Match the existing PO phase filter: must have both a defensive entry
+    // (we already do — d is from defMap) AND a PO ratBase entry.
+    const ratBase = poRatMap[name];
+    if (typeof ratBase !== 'number') continue;
+    const defAdj = (d.def - dAvg) * DEF_WEIGHT;
+    const globalPlus = ratBase + defAdj + RAT_FLOOR_ADJ;
+    out.push({
+      player: name,
+      team: d.team || '',
+      ratBase, def:d.def, defAdj, globalPlus,
+      gp:d.gp, mpg:d.mpg, ppg:d.ppg, rpg:d.rpg, apg:d.apg
+    });
+  }
+  out.sort((a,b) => b.globalPlus - a.globalPlus);
+  out.forEach((p,i) => p.rank = i + 1);
+  return { players: out, defAvg: dAvg };
+}
+
+// ──────────────────────────────────────────────────────────────
+// Rendering
+// ──────────────────────────────────────────────────────────────
+function rankCls(r) { return r<=5?'rank-top5':r<=20?'rank-top20':r<=50?'rank-top50':''; }
+function defCls(s)  { if (s===null||s===undefined) return 'rat-low'; return s>=28?'rat-elite':s>=20?'rat-star':s>=14?'rat-avg':'rat-low'; }
+function n(v, d=1)  { return (v===null || v===undefined || isNaN(v)) ? '—' : v.toFixed(d); }
+
+function renderTop30(players) {
+  const top = players.slice(0, 30);
+  const html = top.map(p => `
+    <tr>
+      <td class="col-rank ${rankCls(p.rank)}">${p.rank}</td>
+      <td class="col-player">
+        <div class="player-name">${p.player}</div>
+        <div class="player-team">${p.team ? `<img src="${logoUrl(p.team)}" alt="${p.team}" onerror="this.style.display='none'">` : ''}${p.team || ''}</div>
+      </td>
+      <td class="col-num col-gr">${p.globalPlus.toFixed(2)}</td>
+      <td class="col-num">${p.gp!==null && p.gp!==undefined ? Math.round(p.gp) : '—'}</td>
+      <td class="col-num">${n(p.mpg)}</td>
+      <td class="col-num">${n(p.ppg)}</td>
+      <td class="col-num">${n(p.rpg)}</td>
+      <td class="col-num">${n(p.apg)}</td>
+      <td class="col-num col-rat ${defCls(p.def)}">${p.def!==null?p.def.toFixed(1):'—'}</td>
+    </tr>`).join('');
+  document.getElementById('top30Body').innerHTML = html;
+  document.getElementById('top30Wrap').style.display = '';
+  document.getElementById('top30Meta').textContent =
+    `${players.length} qualifying players · league-avg Def PO ${data.defAvg.toFixed(1)}`;
+}
+
+function renderTeams(players) {
+  // Group by playoff team (defense-po TEAM).
+  const byTeam = {};
+  for (const p of players) {
+    if (!p.team) continue;
+    (byTeam[p.team] ||= []).push(p);
+  }
+  // Sort each team's players by GR+ desc and take top 15.
+  const teams = Object.keys(byTeam).map(abbr => {
+    const list = byTeam[abbr].sort((a,b) => b.globalPlus - a.globalPlus).slice(0, 15);
+    return { abbr, name: TEAM_FULL[abbr] || abbr, players: list, topGR: list[0]?.globalPlus ?? 0 };
+  });
+  // Order teams by their best player's GR+ desc (most impressive cards first).
+  teams.sort((a,b) => b.topGR - a.topGR);
+
+  const grid = document.getElementById('teamsGrid');
+  grid.innerHTML = teams.map(t => {
+    const rows = t.players.map((p,i) => `
+      <tr>
+        <td class="tt-rank">${i+1}</td>
+        <td class="tt-name">${p.player}</td>
+        <td class="tt-gr">${p.globalPlus.toFixed(2)}</td>
+        <td class="tt-stat">${n(p.mpg)} mpg</td>
+        <td class="tt-stat ${defCls(p.def)}">${p.def!==null?p.def.toFixed(1):'—'}</td>
+      </tr>`).join('');
+    const logo = logoUrl(t.abbr);
+    return `
+      <div class="team-card">
+        <div class="team-card-head">
+          ${logo ? `<img src="${logo}" alt="${t.abbr}" onerror="this.style.display='none'">` : ''}
+          <div>
+            <div class="name">${t.name}</div>
+            <div class="abbrev">${t.abbr} · ${t.players.length} players</div>
+          </div>
+          <span class="topgr">Top GR+ <b>${t.topGR.toFixed(2)}</b></span>
+        </div>
+        <table class="team-tbl"><tbody>${rows}</tbody></table>
+      </div>`;
+  }).join('');
+  document.getElementById('teamsWrap').style.display = '';
+  document.getElementById('teamsMeta').textContent = `${teams.length} playoff teams`;
+}
+
+// ──────────────────────────────────────────────────────────────
+// Boot
+// ──────────────────────────────────────────────────────────────
+let data = null;
+async function init() {
+  try {
+    const [defR, rbR] = await Promise.all([
+      fetch(DEFENSE_URL),
+      fetch(RAT_BASE_URL)
+    ]);
+    if (!defR.ok) throw new Error(`Defense PO HTTP ${defR.status}`);
+    if (!rbR.ok)  throw new Error(`PO RatBase HTTP ${rbR.status}`);
+    const defJson = await defR.json();
+    const rbCsv   = await rbR.text();
+    const defMap   = parseDefPO(defJson);
+    const poRatMap = parsePoRatBase(rbCsv);
+    console.log('[GR+ PO] defMap=', Object.keys(defMap).length, 'poRatMap=', Object.keys(poRatMap).length);
+    data = buildPlayers(defMap, poRatMap);
+    if (!data.players.length) throw new Error('No qualifying players found (need both defensive entry and PO ratBase entry).');
+    document.getElementById('loadingArea').style.display = 'none';
+    renderTop30(data.players);
+    renderTeams(data.players);
+  } catch(err) {
+    console.error('[GR+ PO] init failed:', err);
+    document.getElementById('loadingArea').innerHTML =
+      `<div class="error-msg">Failed to load 2026 playoffs ratings: ${err.message}</div>`;
+  }
+}
+init();
+</script>
+</body>
+</html>
