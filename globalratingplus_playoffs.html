@@ -101,11 +101,7 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
 
 <!-- ===== Top-30 Overall ===== -->
 <div id="top30Wrap" style="display:none">
-  <div class="section-title">
-    <h2>Top 30 — Global Rating Plus, 2026 Playoffs</h2>
-    <span class="sub" id="top30Meta"></span>
-  </div>
-  <div class="table-container">
+  <div class="table-container" style="margin-top:1.75rem">
     <table>
       <thead>
         <tr>
@@ -129,7 +125,6 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
 <div id="teamsWrap" style="display:none">
   <div class="section-title">
     <h2>Top 15 by team — 2026 Playoffs</h2>
-    <span class="sub" id="teamsMeta"></span>
   </div>
   <div class="teams-grid" id="teamsGrid"></div>
 </div>
@@ -309,8 +304,6 @@ function renderTop30(players) {
     </tr>`).join('');
   document.getElementById('top30Body').innerHTML = html;
   document.getElementById('top30Wrap').style.display = '';
-  document.getElementById('top30Meta').textContent =
-    `${players.length} qualifying players · league-avg Def PO ${data.defAvg.toFixed(1)}`;
 }
 
 function renderTeams(players) {
@@ -326,8 +319,8 @@ function renderTeams(players) {
     const list = byTeam[abbr].sort((a,b) => b.globalPlus - a.globalPlus).slice(0, 15);
     return { abbr, name: TEAM_FULL[abbr] || abbr, players: list, topGR: list[0]?.globalPlus ?? 0 };
   });
-  // Order teams by their best player's GR+ desc (most impressive cards first).
-  teams.sort((a,b) => b.topGR - a.topGR);
+  // Order teams alphabetically (Atlanta first).
+  teams.sort((a,b) => a.abbr.localeCompare(b.abbr));
 
   // Shared thead — same columns as Top-30 table.
   const theadRow = `
@@ -381,7 +374,6 @@ function renderTeams(players) {
       </div>`;
   }).join('');
   document.getElementById('teamsWrap').style.display = '';
-  document.getElementById('teamsMeta').textContent = `${teams.length} playoff teams · ranks are global (out of ${players.length})`;
 }
 
 // ──────────────────────────────────────────────────────────────
