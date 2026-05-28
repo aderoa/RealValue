@@ -399,52 +399,94 @@ function renderTeams(players) {
 // ──────────────────────────────────────────────────────────────
 // Copy-pastable HTML for a Presto post. Inline styles only — Presto
 // strips CSS classes, so all visual hierarchy lives in style="…".
-// Matches the on-page layout: Top-30 leaderboard, then alphabetical
-// per-team Top-15 sections. Global ranks throughout.
+// Mirrors the on-page 9-column table (#, Player, GR+, GP, MPG, PPG,
+// RPG, APG, Def PO). One <table> per section: Top-30 first, then
+// alphabetical per-team Top-15 tables. Global ranks throughout.
 function escapeHTML(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// One <li> per player. `showTeam` adds team abbreviation to the
-// subtitle in the Top-30 block; per-team sections suppress it
-// since the team is already in the h3.
-function prestoPlayerLine(p, showTeam) {
-  const rankText = '#' + p.rank;
-  const pad = '\u00A0'.repeat(Math.max(0, 4 - rankText.length));
-  let colour = '#999';
-  if (p.rank <= 5)        colour = '#f0b637'; // gold
-  else if (p.rank <= 30)  colour = '#3b82f6'; // blue
-  else if (p.rank <= 50)  colour = '#0ea5e9'; // cyan
-  const rankPrefix = `<strong style="color:${colour};font-family:monospace">${rankText}${pad}</strong>`;
-  const nameCell = `<strong>${escapeHTML(p.player)}</strong>`;
-  const ppg = (p.ppg != null && !isNaN(p.ppg)) ? p.ppg.toFixed(1) : '\u2014';
-  const rpg = (p.rpg != null && !isNaN(p.rpg)) ? p.rpg.toFixed(1) : '\u2014';
-  const apg = (p.apg != null && !isNaN(p.apg)) ? p.apg.toFixed(1) : '\u2014';
-  const def = (p.def != null && !isNaN(p.def)) ? p.def.toFixed(1) : '\u2014';
-  const parts = [];
-  if (showTeam && p.team) parts.push(escapeHTML(p.team));
-  parts.push('GR+ ' + p.globalPlus.toFixed(2));
-  parts.push(ppg + '/' + rpg + '/' + apg);
-  parts.push('Def ' + def);
-  const sub = parts.join(' \u00b7 ');
-  return `    <li style="margin:.15em 0">${rankPrefix}\u00A0\u00A0\u00A0${nameCell} <span style="color:#666;font-size:.9em">(${sub})</span></li>\n`;
+// Color tiers — matches the on-page CSS classes (.rank-top5, etc.)
+function prestoRankColor(r) {
+  if (r <= 5)  return '#f0b637'; // gold
+  if (r <= 20) return '#3b82f6'; // blue
+  if (r <= 50) return '#0ea5e9'; // cyan
+  return '#8892a6';              // muted
+}
+function prestoDefColor(d) {
+  if (d == null || isNaN(d)) return '#8892a6';
+  if (d >= 28) return '#b45309'; // elite
+  if (d >= 20) return '#3b82f6'; // star
+  if (d >= 14) return '#0ea5e9'; // solid
+  return '#1a1a2e';              // avg
+}
+
+// Build one <thead>. `showTeam` adds team abbrev under the player
+// name in body rows; the header itself is identical either way.
+function prestoTableHead() {
+  const th = 'padding:.45em .5em;font-family:sans-serif;font-size:.62em;font-weight:500;text-transform:uppercase;letter-spacing:.06em;color:#8892a6;border-bottom:1px solid #e2e5e9';
+  return `    <thead>
+      <tr style="background:#f3f4f6">
+        <th style="${th};text-align:center;width:50px">#</th>
+        <th style="${th};text-align:left">Player</th>
+        <th style="${th};text-align:right">GR+</th>
+        <th style="${th};text-align:right">GP</th>
+        <th style="${th};text-align:right">MPG</th>
+        <th style="${th};text-align:right">PPG</th>
+        <th style="${th};text-align:right">RPG</th>
+        <th style="${th};text-align:right">APG</th>
+        <th style="${th};text-align:right">Def PO</th>
+      </tr>
+    </thead>
+`;
+}
+
+// Build one <tr> for a player. `showTeam` adds the team abbrev as a
+// muted sub-line under the player's name — used in the Top-30 table
+// where rows span all teams. Per-team tables suppress it since the
+// team is already in the h3 above.
+function prestoRow(p, showTeam) {
+  const td    = 'padding:.45em .5em;border-bottom:1px solid #e2e5e9;font-family:sans-serif;font-size:.84em;vertical-align:middle';
+  const tdNum = td + ';text-align:right;font-family:\'JetBrains Mono\',monospace';
+  const fmt   = (v, d=1) => (v != null && !isNaN(v)) ? v.toFixed(d) : '\u2014';
+  const gp    = (p.gp != null && !isNaN(p.gp)) ? Math.round(p.gp) : '\u2014';
+  const rankColor = prestoRankColor(p.rank);
+  const defColor  = prestoDefColor(p.def);
+  let playerCell = `<strong style="font-size:1.02em">${escapeHTML(p.player)}</strong>`;
+  if (showTeam && p.team) {
+    playerCell += `<div style="font-size:.78em;color:#5a6070;margin-top:.1em">${escapeHTML(p.team)}</div>`;
+  }
+  return `      <tr>
+        <td style="${td};text-align:center;font-weight:700;color:${rankColor};font-size:.95em">${p.rank}</td>
+        <td style="${td}">${playerCell}</td>
+        <td style="${tdNum};font-weight:700;font-size:.9em">${p.globalPlus.toFixed(2)}</td>
+        <td style="${tdNum}">${gp}</td>
+        <td style="${tdNum}">${fmt(p.mpg)}</td>
+        <td style="${tdNum}">${fmt(p.ppg)}</td>
+        <td style="${tdNum}">${fmt(p.rpg)}</td>
+        <td style="${tdNum}">${fmt(p.apg)}</td>
+        <td style="${tdNum};font-weight:600;color:${defColor}">${fmt(p.def)}</td>
+      </tr>
+`;
 }
 
 function generatePresto() {
   if (!data || !data.players || !data.players.length) return '';
   const all = data.players;
 
-  let out = '<div style="font-family:sans-serif;max-width:760px;margin:0 auto">\n';
+  let out = '<div style="font-family:sans-serif;max-width:900px;margin:0 auto">\n';
   out += '  <p style="margin:0 0 .8em">Hoopsmatic\u2019s <strong>Global Rating Plus</strong> blends each player\u2019s 365-day base rating with their playoff defensive impact. Here are the leaders from the 2026 NBA Playoffs.</p>\n';
-  out += '  <p style="margin:0 0 1em;font-size:.85em;color:#666"><em>GR+ = base rating + (playoff DEF_SCORE \u2212 league avg) \u00d7 0.2 + 1.5. Subtitle stats are PPG/RPG/APG plus playoff Def composite (~15 avg, mid-20s elite).</em></p>\n';
+  out += '  <p style="margin:0 0 1em;font-size:.85em;color:#666"><em>GR+ = base rating + (playoff DEF_SCORE \u2212 league avg) \u00d7 0.2 + 1.5. Def PO composite \u2248 15 avg, mid-20s elite, low-30s DPOY-level.</em></p>\n';
 
   // ===== Top 30 =====
   const top30 = all.slice(0, 30);
-  out += `  <h3 style="margin:1.4em 0 .3em;font-size:1.1em;border-bottom:2px solid #3b82f6;padding-bottom:.15em">Top 30 \u2014 2026 Playoffs</h3>\n`;
-  out += `  <ul style="list-style:none;margin:.2em 0 .8em 0;padding:0">\n`;
-  for (const p of top30) out += prestoPlayerLine(p, true);
-  out += `  </ul>\n`;
+  out += '  <h3 style="margin:1.4em 0 .4em;font-size:1.1em;border-bottom:2px solid #3b82f6;padding-bottom:.15em">Top 30 \u2014 2026 Playoffs</h3>\n';
+  out += '  <table style="border-collapse:collapse;width:100%;margin-bottom:1em">\n';
+  out += prestoTableHead();
+  out += '    <tbody>\n';
+  for (const p of top30) out += prestoRow(p, true);
+  out += '    </tbody>\n  </table>\n';
 
   // ===== Per-team Top 15 (alphabetical by abbreviation) =====
   const byTeam = {};
@@ -457,10 +499,12 @@ function generatePresto() {
     const list = byTeam[abbr].sort((a,b) => b.globalPlus - a.globalPlus).slice(0, 15);
     const teamName = TEAM_FULL[abbr] || abbr;
     const topGR = list[0] ? list[0].globalPlus.toFixed(2) : '\u2014';
-    out += `  <h3 style="margin:1.2em 0 .3em;font-size:1.05em;border-bottom:2px solid #3b82f6;padding-bottom:.15em">${escapeHTML(teamName)} <span style="font-size:.7em;color:#666;font-weight:normal">(${abbr} \u00b7 Top GR+ ${topGR})</span></h3>\n`;
-    out += `  <ul style="list-style:none;margin:.2em 0 .8em 0;padding:0">\n`;
-    for (const p of list) out += prestoPlayerLine(p, false);
-    out += `  </ul>\n`;
+    out += `  <h3 style="margin:1.4em 0 .4em;font-size:1.05em;border-bottom:2px solid #3b82f6;padding-bottom:.15em">${escapeHTML(teamName)} <span style="font-size:.7em;color:#666;font-weight:normal">(${abbr} \u00b7 Top GR+ ${topGR})</span></h3>\n`;
+    out += '  <table style="border-collapse:collapse;width:100%;margin-bottom:1em">\n';
+    out += prestoTableHead();
+    out += '    <tbody>\n';
+    for (const p of list) out += prestoRow(p, false);
+    out += '    </tbody>\n  </table>\n';
   }
 
   out += '</div>';
