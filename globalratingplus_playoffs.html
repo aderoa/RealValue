@@ -28,6 +28,12 @@ body { font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif; backgr
 .header-back { font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--text-muted); text-decoration:none; padding:0.3em 0.6em; border:1px solid var(--border); border-radius:6px; transition:color .15s,border-color .15s; }
 .header-back:hover { color:var(--accent); border-color:var(--accent); }
 
+.btn-copy { font-family:inherit; font-size:0.7rem; font-weight:600; padding:0.35em 0.75em; background:var(--accent); color:#fff; border:1px solid var(--accent); border-radius:6px; cursor:pointer; letter-spacing:0.01em; transition:background .15s, border-color .15s, opacity .15s; }
+.btn-copy:hover { background:#2563eb; border-color:#2563eb; }
+.btn-copy:disabled { background:var(--text-muted); border-color:var(--text-muted); cursor:not-allowed; opacity:0.5; }
+.btn-copy.success { background:var(--green); border-color:var(--green); }
+.btn-copy.error { background:var(--red); border-color:var(--red); }
+
 .section-title { max-width:1200px; margin:1.75rem auto 0.65rem; padding:0 2rem; display:flex; align-items:baseline; gap:0.75rem; }
 .section-title h2 { font-weight:700; font-size:1.1rem; color:var(--text); letter-spacing:-0.01em; }
 .section-title .sub { font-size:0.78rem; color:var(--text-muted); }
@@ -91,6 +97,7 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
     <div class="header-brand"><h1>NBA Global Rating Plus — 2026 Playoffs</h1></div>
     <span class="tag">GR+ PO</span>
     <a class="header-back" href="/GlobalRatingPlus?phase=po">← Full GR+ Playoffs leaderboard</a>
+    <button class="btn-copy" id="btnCopyPresto" disabled>📷 Copy Presto Code</button>
   </div>
 </div>
 
@@ -377,6 +384,119 @@ function renderTeams(players) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// Presto code generation
+// ──────────────────────────────────────────────────────────────
+// Copy-pastable HTML for a Presto post. Inline styles only — Presto
+// strips CSS classes, so all visual hierarchy lives in style="…".
+// Matches the on-page layout: Top-30 leaderboard, then alphabetical
+// per-team Top-15 sections. Global ranks throughout.
+function escapeHTML(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// One <li> per player. `showTeam` adds team abbreviation to the
+// subtitle in the Top-30 block; per-team sections suppress it
+// since the team is already in the h3.
+function prestoPlayerLine(p, showTeam) {
+  const rankText = '#' + p.rank;
+  const pad = '\u00A0'.repeat(Math.max(0, 4 - rankText.length));
+  let colour = '#999';
+  if (p.rank <= 5)        colour = '#f0b637'; // gold
+  else if (p.rank <= 30)  colour = '#3b82f6'; // blue
+  else if (p.rank <= 50)  colour = '#0ea5e9'; // cyan
+  const rankPrefix = `<strong style="color:${colour};font-family:monospace">${rankText}${pad}</strong>`;
+  const nameCell = `<strong>${escapeHTML(p.player)}</strong>`;
+  const ppg = (p.ppg != null && !isNaN(p.ppg)) ? p.ppg.toFixed(1) : '\u2014';
+  const rpg = (p.rpg != null && !isNaN(p.rpg)) ? p.rpg.toFixed(1) : '\u2014';
+  const apg = (p.apg != null && !isNaN(p.apg)) ? p.apg.toFixed(1) : '\u2014';
+  const def = (p.def != null && !isNaN(p.def)) ? p.def.toFixed(1) : '\u2014';
+  const parts = [];
+  if (showTeam && p.team) parts.push(escapeHTML(p.team));
+  parts.push('GR+ ' + p.globalPlus.toFixed(2));
+  parts.push(ppg + '/' + rpg + '/' + apg);
+  parts.push('Def ' + def);
+  const sub = parts.join(' \u00b7 ');
+  return `    <li style="margin:.15em 0">${rankPrefix}\u00A0\u00A0\u00A0${nameCell} <span style="color:#666;font-size:.9em">(${sub})</span></li>\n`;
+}
+
+function generatePresto() {
+  if (!data || !data.players || !data.players.length) return '';
+  const all = data.players;
+
+  let out = '<div style="font-family:sans-serif;max-width:760px;margin:0 auto">\n';
+  out += '  <p style="margin:0 0 .8em">Hoopsmatic\u2019s <strong>Global Rating Plus</strong> blends each player\u2019s 365-day base rating with their playoff defensive impact. Here are the leaders from the 2026 NBA Playoffs.</p>\n';
+  out += '  <p style="margin:0 0 1em;font-size:.85em;color:#666"><em>GR+ = base rating + (playoff DEF_SCORE \u2212 league avg) \u00d7 0.2 + 1.5. Subtitle stats are PPG/RPG/APG plus playoff Def composite (~15 avg, mid-20s elite).</em></p>\n';
+
+  // ===== Top 30 =====
+  const top30 = all.slice(0, 30);
+  out += `  <h3 style="margin:1.4em 0 .3em;font-size:1.1em;border-bottom:2px solid #3b82f6;padding-bottom:.15em">Top 30 \u2014 2026 Playoffs</h3>\n`;
+  out += `  <ul style="list-style:none;margin:.2em 0 .8em 0;padding:0">\n`;
+  for (const p of top30) out += prestoPlayerLine(p, true);
+  out += `  </ul>\n`;
+
+  // ===== Per-team Top 15 (alphabetical by abbreviation) =====
+  const byTeam = {};
+  for (const p of all) {
+    if (!p.team) continue;
+    (byTeam[p.team] ||= []).push(p);
+  }
+  const abbrs = Object.keys(byTeam).sort((a,b) => a.localeCompare(b));
+  for (const abbr of abbrs) {
+    const list = byTeam[abbr].sort((a,b) => b.globalPlus - a.globalPlus).slice(0, 15);
+    const teamName = TEAM_FULL[abbr] || abbr;
+    const topGR = list[0] ? list[0].globalPlus.toFixed(2) : '\u2014';
+    out += `  <h3 style="margin:1.2em 0 .3em;font-size:1.05em;border-bottom:2px solid #3b82f6;padding-bottom:.15em">${escapeHTML(teamName)} <span style="font-size:.7em;color:#666;font-weight:normal">(${abbr} \u00b7 Top GR+ ${topGR})</span></h3>\n`;
+    out += `  <ul style="list-style:none;margin:.2em 0 .8em 0;padding:0">\n`;
+    for (const p of list) out += prestoPlayerLine(p, false);
+    out += `  </ul>\n`;
+  }
+
+  out += '</div>';
+  return out;
+}
+
+const PRESTO_BTN_LABEL = '\ud83d\udcf7 Copy Presto Code';
+function flashButton(btn, msg, kind) {
+  btn.textContent = msg;
+  btn.classList.remove('success', 'error');
+  if (kind === 'success') btn.classList.add('success');
+  else if (kind === 'error') btn.classList.add('error');
+  setTimeout(() => {
+    btn.textContent = PRESTO_BTN_LABEL;
+    btn.classList.remove('success', 'error');
+  }, 2000);
+}
+function fallbackCopy(text, btn) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    flashButton(btn, '\u2713 Copied!', 'success');
+  } catch (e) {
+    flashButton(btn, 'Copy failed', 'error');
+  }
+  document.body.removeChild(ta);
+}
+function copyPresto() {
+  const btn = document.getElementById('btnCopyPresto');
+  const code = generatePresto();
+  if (!code) { flashButton(btn, 'Nothing to copy', 'error'); return; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(code)
+      .then(() => flashButton(btn, '\u2713 Copied!', 'success'))
+      .catch(() => fallbackCopy(code, btn));
+  } else {
+    fallbackCopy(code, btn);
+  }
+}
+document.getElementById('btnCopyPresto').addEventListener('click', copyPresto);
+
+// ──────────────────────────────────────────────────────────────
 // Boot
 // ──────────────────────────────────────────────────────────────
 let data = null;
@@ -398,6 +518,7 @@ async function init() {
     document.getElementById('loadingArea').style.display = 'none';
     renderTop30(data.players);
     renderTeams(data.players);
+    document.getElementById('btnCopyPresto').disabled = false;
   } catch(err) {
     console.error('[GR+ PO] init failed:', err);
     document.getElementById('loadingArea').innerHTML =
