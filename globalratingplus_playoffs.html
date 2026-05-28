@@ -425,7 +425,7 @@ function prestoDefColor(d) {
 // Build one <thead>. `showTeam` adds team abbrev under the player
 // name in body rows; the header itself is identical either way.
 function prestoTableHead() {
-  const th = 'padding:.45em .5em;font-family:sans-serif;font-size:.62em;font-weight:500;text-transform:uppercase;letter-spacing:.06em;color:#8892a6;border-bottom:1px solid #e2e5e9';
+  const th = 'padding:.45em .5em;font-family:sans-serif;font-size:.62em;font-weight:500;text-transform:uppercase;letter-spacing:.06em;color:#8892a6';
   return `    <thead>
       <tr style="background:#f3f4f6">
         <th style="${th};text-align:center;width:50px">#</th>
@@ -447,7 +447,7 @@ function prestoTableHead() {
 // where rows span all teams. Per-team tables suppress it since the
 // team is already in the h3 above.
 function prestoRow(p, showTeam) {
-  const td    = 'padding:.45em .5em;border-bottom:1px solid #e2e5e9;font-family:sans-serif;font-size:.84em;vertical-align:middle';
+  const td    = 'padding:.45em .5em;font-family:sans-serif;font-size:.84em;vertical-align:middle';
   const tdNum = td + ';text-align:right;font-family:\'JetBrains Mono\',monospace';
   const fmt   = (v, d=1) => (v != null && !isNaN(v)) ? v.toFixed(d) : '\u2014';
   const gp    = (p.gp != null && !isNaN(p.gp)) ? Math.round(p.gp) : '\u2014';
@@ -476,8 +476,7 @@ function generatePresto() {
   const all = data.players;
 
   let out = '<div style="font-family:sans-serif;max-width:900px;margin:0 auto">\n';
-  out += '  <p style="margin:0 0 .8em">Hoopsmatic\u2019s <strong>Global Rating Plus</strong> blends each player\u2019s 365-day base rating with their playoff defensive impact. Here are the leaders from the 2026 NBA Playoffs.</p>\n';
-  out += '  <p style="margin:0 0 1em;font-size:.85em;color:#666"><em>GR+ = base rating + (playoff DEF_SCORE \u2212 league avg) \u00d7 0.2 + 1.5. Def PO composite \u2248 15 avg, mid-20s elite, low-30s DPOY-level.</em></p>\n';
+  out += '  <p style="margin:0 0 1em">Who\u2019s been balling in the 2026 Playoffs on both sides of the court? To answer that, we\u2019ve refined our classic <a href="https://www.hoopshype.com/rankings/players/" style="color:#3b82f6;text-decoration:underline">Global Rating</a> metric by factoring in our brand-new <a href="https://hoopsmatic.com/defense" style="color:#3b82f6;text-decoration:underline">Defensive Rating</a>. Here are the best players in the 2026 Playoffs so far.</p>\n';
 
   // ===== Top 30 =====
   const top30 = all.slice(0, 30);
@@ -498,8 +497,7 @@ function generatePresto() {
   for (const abbr of abbrs) {
     const list = byTeam[abbr].sort((a,b) => b.globalPlus - a.globalPlus).slice(0, 15);
     const teamName = TEAM_FULL[abbr] || abbr;
-    const topGR = list[0] ? list[0].globalPlus.toFixed(2) : '\u2014';
-    out += `  <h3 style="margin:1.4em 0 .4em;font-size:1.05em;border-bottom:2px solid #3b82f6;padding-bottom:.15em">${escapeHTML(teamName)} <span style="font-size:.7em;color:#666;font-weight:normal">(${abbr} \u00b7 Top GR+ ${topGR})</span></h3>\n`;
+    out += `  <h3 style="margin:1.4em 0 .4em;font-size:1.05em;border-bottom:2px solid #3b82f6;padding-bottom:.15em">${escapeHTML(teamName)}</h3>\n`;
     out += '  <table style="border-collapse:collapse;width:100%;margin-bottom:1em">\n';
     out += prestoTableHead();
     out += '    <tbody>\n';
