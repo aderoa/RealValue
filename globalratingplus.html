@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NBA Global Rating Plus — 2026 Playoffs — Hoopsmatic</title>
+<title>NBA Global Rating Plus — Hoopsmatic</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-/* === HOOPSMATIC DESIGN SYSTEM v1.0 — mirrors globalratingplus.html === */
+/* === HOOPSMATIC DESIGN SYSTEM v1.0 === */
 :root {
   --bg: #f8f9fa; --surface: #fff; --surface2: #f3f4f6;
   --border: #e2e5e9; --text: #1a1a2e; --text2: #5a6070; --text-muted: #8892a6;
@@ -25,16 +25,34 @@ body { font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif; backgr
 .header h1, .header-brand h1 { font-weight:800; font-size:1.5rem; letter-spacing:-0.02em; color:var(--text); }
 .header .tag { font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--accent); background:var(--accent-dim); padding:0.2em 0.6em; border-radius:4px; letter-spacing:0.04em; }
 .header-subtitle { color:var(--text2); font-size:0.85rem; }
-.header-back { font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--text-muted); text-decoration:none; padding:0.3em 0.6em; border:1px solid var(--border); border-radius:6px; transition:color .15s,border-color .15s; }
-.header-back:hover { color:var(--accent); border-color:var(--accent); }
 
-.section-title { max-width:1200px; margin:1.75rem auto 0.65rem; padding:0 2rem; display:flex; align-items:baseline; gap:0.75rem; }
-.section-title h2 { font-weight:700; font-size:1.1rem; color:var(--text); letter-spacing:-0.01em; }
-.section-title .sub { font-size:0.78rem; color:var(--text-muted); }
+.stats-bar { max-width:1200px; margin:1rem auto 0; padding:0 2rem; display:grid; grid-template-columns:repeat(4,1fr); gap:0.75rem; }
+.stat-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:1rem 1.15rem; }
+.stat-card .label { font-family:'JetBrains Mono',monospace; font-size:0.6rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:0.2rem; }
+.stat-card .value { font-weight:700; font-size:1.35rem; color:var(--text); }
+.stat-card .value .unit { font-size:0.8rem; font-weight:400; color:var(--text2); }
 
-.table-container { max-width:1200px; margin:0 auto; padding:0 2rem; overflow-x:auto; }
+.controls { max-width:1200px; margin:1.25rem auto 0; padding:0 2rem; display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center; }
+.phase-bar { max-width:1200px; margin:0.5rem auto 0; padding:0 2rem; display:flex; gap:0.4rem; flex-wrap:wrap; }
+.phase-btn { font-family:inherit; font-size:0.78rem; font-weight:600; padding:0.5rem 1rem; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--text2); cursor:pointer; transition:all 0.15s; }
+.phase-btn:hover { border-color:var(--accent); color:var(--accent); }
+.phase-btn.active { background:var(--accent-dim); border-color:var(--accent); color:var(--accent); }
+.search-box { flex:1; min-width:200px; position:relative; }
+.search-box input { width:100%; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.85rem 0.55rem 2.3rem; color:var(--text); font-family:inherit; font-size:0.85rem; outline:none; transition:border-color 0.2s; }
+.search-box input:focus { border-color:var(--accent); }
+.search-box input::placeholder { color:var(--text-muted); }
+.search-box .icon { position:absolute; left:0.8rem; top:50%; transform:translateY(-50%); color:var(--text-muted); font-size:0.85rem; }
+.filter-group { display:flex; gap:0.5rem; align-items:center; }
+.filter-group label { font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; font-weight:600; }
+select { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:0.55rem 0.85rem; color:var(--text); font-family:inherit; font-size:0.85rem; outline:none; cursor:pointer; }
+select:focus { border-color:var(--accent); }
+.ctrl-btn { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:0.5rem 1rem; color:var(--text); font-family:inherit; font-size:0.82rem; font-weight:500; cursor:pointer; transition:border-color 0.15s, background 0.15s; white-space:nowrap; }
+.ctrl-btn:hover:not(:disabled) { border-color:var(--accent); background:var(--accent-dim); }
+.ctrl-btn:disabled { opacity:0.4; cursor:default; }
+
+.table-container { max-width:1200px; margin:1.25rem auto 3rem; padding:0 2rem; overflow-x:auto; }
 table { width:100%; border-collapse:collapse; font-size:0.82rem; }
-thead th { background:var(--surface2); font-family:'JetBrains Mono',monospace; font-size:0.62rem; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); padding:0.6rem 0.5rem; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; }
+thead th { position:sticky; top:0; z-index:10; background:var(--surface2); font-family:'JetBrains Mono',monospace; font-size:0.62rem; font-weight:500; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); padding:0.6rem 0.5rem; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; }
 tbody tr { border-bottom:1px solid var(--border); transition:background 0.12s; }
 tbody tr:hover { background:rgba(59,130,246,0.03); }
 tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
@@ -43,142 +61,133 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
 .rank-top5 { color:var(--accent-gold); } .rank-top20 { color:var(--accent); } .rank-top50 { color:var(--accent-cyan); }
 .col-player { min-width:200px; }
 .player-name { font-weight:600; font-size:0.88rem; }
-.player-team { font-size:0.72rem; color:var(--text2); margin-top:0.05rem; display:flex; align-items:center; gap:0.3rem; }
-.player-team img { width:13px; height:13px; vertical-align:middle; }
+.player-team { font-size:0.72rem; color:var(--text2); margin-top:0.05rem; }
 .col-num { text-align:right; font-family:'JetBrains Mono',monospace; font-size:0.82rem; }
 .col-rat { font-weight:600; }
 .rat-elite { color:#b45309; } .rat-star { color:var(--accent); } .rat-solid { color:var(--accent-cyan); } .rat-avg { color:var(--text); } .rat-low { color:var(--text-muted); }
 .col-gr { font-weight:700; font-size:0.9rem; }
-
-/* === Team Grid === */
-.teams-grid { max-width:1200px; margin:0.5rem auto 2.5rem; padding:0 2rem; display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
-.team-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem 0.6rem; }
-.team-card-head { display:flex; align-items:center; gap:0.6rem; padding-bottom:0.65rem; border-bottom:1px solid var(--border); margin-bottom:0.45rem; }
-.team-card-head img { width:32px; height:32px; flex-shrink:0; }
-.team-card-head .name { font-weight:700; font-size:1rem; color:var(--text); }
-.team-card-head .abbrev { font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:var(--text-muted); letter-spacing:0.04em; }
-.team-card-head .topgr { margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--text-muted); }
-.team-card-head .topgr b { color:var(--text); font-weight:600; }
-.team-tbl { width:100%; border-collapse:collapse; font-size:0.8rem; }
-.team-tbl td { padding:0.35rem 0.35rem; border-bottom:1px solid var(--border); }
-.team-tbl tr:last-child td { border-bottom:none; }
-.team-tbl .tt-rank { width:24px; color:var(--text-muted); font-family:'JetBrains Mono',monospace; font-size:0.7rem; text-align:right; }
-.team-tbl .tt-name { font-weight:600; font-size:0.82rem; }
-.team-tbl .tt-gr { width:60px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:0.78rem; font-weight:700; }
-.team-tbl .tt-stat { width:48px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--text2); }
+.def-adj-pos { color:var(--pos); font-size:0.7rem; margin-left:0.35rem; }
+.def-adj-neg { color:var(--neg); font-size:0.7rem; margin-left:0.35rem; }
 
 .loading-state { text-align:center; padding:4rem 2rem; color:var(--text2); }
 .loading-spinner { display:inline-block; width:36px; height:36px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:hmSpin 0.8s linear infinite; margin:0 auto 1rem; }
 @keyframes hmSpin { to { transform:rotate(360deg); } }
 .error-msg { color:var(--red); max-width:600px; margin:0 auto; text-align:center; }
 
+.methodology { max-width:1200px; margin:0 auto 3rem; padding:0 2rem; color:var(--text2); font-size:0.82rem; line-height:1.7; }
+.methodology h3 { color:var(--text); font-size:0.95rem; margin-bottom:0.5rem; }
+.methodology code { font-family:'JetBrains Mono',monospace; font-size:0.78rem; background:var(--surface2); padding:0.1em 0.4em; border-radius:4px; color:var(--text); }
 .footer { max-width:1200px; margin:0 auto; padding:1.5rem 2rem 2.5rem; text-align:center; font-size:0.75rem; color:var(--text-muted); border-top:1px solid var(--border); }
 
-@media(max-width:900px) {
-  .teams-grid { grid-template-columns:1fr; gap:0.75rem; }
-}
-@media(max-width:600px) {
-  .header{padding:1.25rem 1rem 1rem;} .header h1{font-size:1.25rem;}
-  .table-container{padding:0 0.5rem;} td,th{padding:0.4rem 0.35rem;}
-  .section-title{padding:0 1rem;} .teams-grid{padding:0 0.75rem;}
-  .team-card{padding:0.85rem 0.75rem 0.4rem;}
-  .team-tbl .tt-stat{display:none;}
-}
+@media(max-width:900px) { .stats-bar{grid-template-columns:repeat(2,1fr);} .controls{flex-direction:column;} .search-box{min-width:100%;} }
+@media(max-width:600px) { .stats-bar{grid-template-columns:1fr 1fr;gap:0.5rem;} .stat-card{padding:0.75rem;} .stat-card .value{font-size:1.1rem;} .header{padding:1.25rem 1rem 1rem;} .header h1{font-size:1.25rem;} .table-container{padding:0 0.5rem;} td,th{padding:0.4rem 0.35rem;} }
 </style>
 </head>
 <body>
 
 <div class="header">
   <div class="header-inner">
-    <div class="header-brand"><h1>NBA Global Rating Plus — 2026 Playoffs</h1></div>
-    <span class="tag">GR+ PO</span>
-    <a class="header-back" href="/GlobalRatingPlus?phase=po">← Full GR+ Playoffs leaderboard</a>
+    <div class="header-brand"><h1>NBA Global Rating Plus</h1></div>
+    <span class="tag">GR+</span>
   </div>
+</div>
+
+<div class="phase-bar">
+  <button class="phase-btn" data-phase="rs">Regular Season</button>
+  <button class="phase-btn" data-phase="po">Playoffs</button>
+  <button class="phase-btn active" data-phase="365">Last 365</button>
+</div>
+
+<div class="controls">
+  <div class="search-box">
+    <span class="icon">🔍</span>
+    <input type="text" id="searchInput" placeholder="Search player or team…" disabled>
+  </div>
+  <div class="filter-group">
+    <label>Team</label>
+    <select id="teamFilter" disabled><option value="">All Teams</option></select>
+  </div>
+  <div class="filter-group">
+    <label>Sort</label>
+    <select id="sortSelect" disabled>
+      <option value="globalPlus-desc">Global Rating+ ↓</option>
+      <option value="globalPlus-asc">Global Rating+ ↑</option>
+      <option value="def365-desc">Def 365 ↓</option>
+      <option value="def365-asc">Def 365 ↑</option>
+      <option value="ppg-desc">PPG ↓</option>
+      <option value="rpg-desc">RPG ↓</option>
+      <option value="apg-desc">APG ↓</option>
+      <option value="mpg-desc">MPG ↓</option>
+      <option value="gp-desc">GP ↓</option>
+    </select>
+  </div>
+  <button class="ctrl-btn" id="refreshBtn" onclick="refreshData()" disabled>🔄 Refresh</button>
+</div>
+
+<div class="table-container" style="display:none" id="tableContainer">
+  <table>
+    <thead>
+      <tr>
+        <th class="col-rank">#</th>
+        <th>Player</th>
+        <th style="text-align:right">Global Rating+</th>
+        <th style="text-align:right" title="Games played in the last 365 days">GP</th>
+        <th style="text-align:right" title="Minutes per game (last 365 days)">MPG</th>
+        <th style="text-align:right" title="Points per game (last 365 days)">PPG</th>
+        <th style="text-align:right" title="Rebounds per game (last 365 days)">RPG</th>
+        <th style="text-align:right" title="Assists per game (last 365 days)">APG</th>
+        <th style="text-align:right" title="Defensive_365 composite score (≈15 avg, mid-20s elite, low-30s DPOY-level)">Def 365</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
 </div>
 
 <div class="loading-state" id="loadingArea">
   <div class="loading-spinner"></div>
-  <p>Loading 2026 Playoffs ratings…</p>
+  <p>Loading ratings…</p>
 </div>
 
-<!-- ===== Top-30 Overall ===== -->
-<div id="top30Wrap" style="display:none">
-  <div class="section-title">
-    <h2>Top 30 — Global Rating Plus, 2026 Playoffs</h2>
-    <span class="sub" id="top30Meta"></span>
-  </div>
-  <div class="table-container">
-    <table>
-      <thead>
-        <tr>
-          <th class="col-rank">#</th>
-          <th>Player</th>
-          <th style="text-align:right">Global Rating+</th>
-          <th style="text-align:right" title="Playoff games played">GP</th>
-          <th style="text-align:right" title="Minutes per game in the playoffs">MPG</th>
-          <th style="text-align:right" title="Points per game in the playoffs">PPG</th>
-          <th style="text-align:right" title="Rebounds per game in the playoffs">RPG</th>
-          <th style="text-align:right" title="Assists per game in the playoffs">APG</th>
-          <th style="text-align:right" title="Playoff DEF_SCORE composite (≈15 avg, mid-20s elite, low-30s DPOY-level)">Def PO</th>
-        </tr>
-      </thead>
-      <tbody id="top30Body"></tbody>
-    </table>
-  </div>
-</div>
+<div class="methodology" style="display:none"></div>
 
-<!-- ===== Per-Team Top 15 ===== -->
-<div id="teamsWrap" style="display:none">
-  <div class="section-title">
-    <h2>Top 15 by team — 2026 Playoffs</h2>
-    <span class="sub" id="teamsMeta"></span>
-  </div>
-  <div class="teams-grid" id="teamsGrid"></div>
-</div>
-
-<div class="footer">Hoopsmatic — NBA Global Rating Plus — 2026 Playoffs — Live data via HoopsMatic API</div>
+<div class="footer">Hoopsmatic — NBA Global Rating Plus — Live data via HoopsMatic API</div>
 
 <script>
-// ──────────────────────────────────────────────────────────────
-// Config — same data sources as /GlobalRatingPlus?phase=po
-// ──────────────────────────────────────────────────────────────
+// ── Config ──────────────────────────────────────────────────
 const PROXY_BASE = 'https://hoopsmatic.com';
-const RATINGS_URL  = PROXY_BASE + '/api/rm-tv';        // Sheet3 (RAT 365) — used only as a fallback name source
-const RAT_BASE_URL = PROXY_BASE + '/api/rm-rat-base';  // Sheet8 (PO RAT in left block)
-const DEFENSE_URL  = PROXY_BASE + '/api/defense-po';   // Defensive_Playoffs
-const DEF_WEIGHT   = 0.2;
-const RAT_FLOOR_ADJ = 1.5;
+const RATINGS_URL = PROXY_BASE + '/api/rm-tv';
+// Per-phase RAT base: Sheet8 has two side-by-side blocks — left (cols 0-2) is
+// postseason (RAT_PO), right (cols 6-8) is regular season (RAT_RS). Used by
+// RS and PO phases; the 365 phase keeps using RATINGS_URL above.
+const RAT_BASE_URL = PROXY_BASE + '/api/rm-rat-base';
+// Each phase points at the matching Defensive_* tab proxy. The page's
+// defensive component + box-score stats come from whichever tab is active;
+// the offensive base (RAT 365) stays constant across phases.
+const DEFENSE_ENDPOINTS = {
+  '365': PROXY_BASE + '/api/defense-365',
+  'rs':  PROXY_BASE + '/api/defense-data',
+  'po':  PROXY_BASE + '/api/defense-po',
+};
+const VALID_PHASES = ['rs', 'po', '365'];
 
-// NBA team-id map for logo URLs. /api/logo proxies the NBA CDN.
-const NBA_TEAM_ID = {
-  ATL:1610612737, BOS:1610612738, BKN:1610612751, CHA:1610612766,
-  CHI:1610612741, CLE:1610612739, DAL:1610612742, DEN:1610612743,
-  DET:1610612765, GSW:1610612744, HOU:1610612745, IND:1610612754,
-  LAC:1610612746, LAL:1610612747, MEM:1610612763, MIA:1610612748,
-  MIL:1610612749, MIN:1610612750, NOP:1610612740, NYK:1610612752,
-  OKC:1610612760, ORL:1610612753, PHI:1610612755, PHX:1610612756,
-  POR:1610612757, SAC:1610612758, SAS:1610612759, TOR:1610612761,
-  UTA:1610612762, WAS:1610612764
-};
-const TEAM_FULL = {
-  ATL:'Atlanta Hawks', BOS:'Boston Celtics', BKN:'Brooklyn Nets', CHA:'Charlotte Hornets',
-  CHI:'Chicago Bulls', CLE:'Cleveland Cavaliers', DAL:'Dallas Mavericks', DEN:'Denver Nuggets',
-  DET:'Detroit Pistons', GSW:'Golden State Warriors', HOU:'Houston Rockets', IND:'Indiana Pacers',
-  LAC:'LA Clippers', LAL:'Los Angeles Lakers', MEM:'Memphis Grizzlies', MIA:'Miami Heat',
-  MIL:'Milwaukee Bucks', MIN:'Minnesota Timberwolves', NOP:'New Orleans Pelicans',
-  NYK:'New York Knicks', OKC:'Oklahoma City Thunder', ORL:'Orlando Magic',
-  PHI:'Philadelphia 76ers', PHX:'Phoenix Suns', POR:'Portland Trail Blazers',
-  SAC:'Sacramento Kings', SAS:'San Antonio Spurs', TOR:'Toronto Raptors',
-  UTA:'Utah Jazz', WAS:'Washington Wizards'
-};
-function logoUrl(abbr) {
-  const id = NBA_TEAM_ID[abbr];
-  return id ? `${PROXY_BASE}/api/logo?teamId=${id}` : '';
+// Weight on the defensive factor. The boost added to RAT 365 is
+// (DEF_SCORE − league avg) × DEF_WEIGHT — so it ADDS for above-average
+// defenders and SUBTRACTS for below-average ones, centered on the league
+// average. At 0.2 the defensive influence is a modest ~20% tilt: a player
+// 10 points above average defensively gains +2.0 to their rating.
+// Tune: 0.1 = very light · 0.2 = ~20% influence (default) · 0.5 = strong.
+const DEF_WEIGHT = 0.2;
+
+// Read phase from URL (?phase=rs|po|365). Default to 365.
+function currentPhase() {
+  const p = (new URLSearchParams(location.search).get('phase') || '365').toLowerCase();
+  return VALID_PHASES.includes(p) ? p : '365';
 }
+let PHASE = currentPhase();
 
-// ──────────────────────────────────────────────────────────────
-// CSV parser (same as main GR+ page)
-// ──────────────────────────────────────────────────────────────
+let appData = null;
+
+// ── CSV parser ──────────────────────────────────────────────
 function parseCSV(text) {
   const rows = []; let current = '', inQuotes = false, row = [];
   for (let i = 0; i < text.length; i++) {
@@ -202,12 +211,8 @@ function parseCSV(text) {
   return rows;
 }
 
-// ──────────────────────────────────────────────────────────────
-// Defensive_Playoffs parser — returns { playerName: {team, def, gp, mpg, ppg, rpg, apg} }
-// Differs from the main page parser: we KEEP the TEAM column so we can group
-// by playoff team rather than current roster team.
-// ──────────────────────────────────────────────────────────────
-function parseDefPO(json) {
+// ── Defensive_365 parser: { playerName: {def, gp, mpg, ppg, rpg, apg} } ──
+function parseDef365(json) {
   const out = {};
   const rows = (json && json.values) ? json.values : null;
   if (!rows || rows.length < 3) return out;
@@ -218,174 +223,275 @@ function parseDefPO(json) {
   }
   if (headerIdx < 0) return out;
   const header = rows[headerIdx].map(h => (h || '').toString().trim().toUpperCase());
-  const col = n => header.indexOf(n);
-  const cName=col('PLAYER'), cTeam=col('TEAM'), cScore=col('DEF_SCORE');
-  const cGp=col('GP'), cMpg=col('MPG'), cPpg=col('PPG'), cRpg=col('RPG'), cApg=col('APG');
-  if (cName<0 || cScore<0) return out;
-  const num = (row, c) => { if (c<0) return null; const v=parseFloat(row[c]); return isNaN(v)?null:v; };
+  const col = (name) => header.indexOf(name);
+  const nameCol = col('PLAYER'), scoreCol = col('DEF_SCORE');
+  const gpCol = col('GP'), mpgCol = col('MPG'), ppgCol = col('PPG'), rpgCol = col('RPG'), apgCol = col('APG');
+  if (nameCol < 0 || scoreCol < 0) return out;
+  const num = (row, c) => { if (c < 0) return null; const v = parseFloat(row[c]); return isNaN(v) ? null : v; };
   for (let r = headerIdx + 1; r < rows.length; r++) {
     const row = rows[r] || [];
+    // Stop when we hit the next section marker (e.g. [LAST_30D]) — the
+    // Defensive_Rankings tab has multiple periods stacked, but we only want
+    // the first (Season).
     const firstCell = (row[0] || '').toString().trim();
     if (firstCell.startsWith('[') && firstCell.endsWith(']')) break;
-    const name = (row[cName] || '').toString().trim();
-    const team = cTeam>=0 ? (row[cTeam] || '').toString().trim().toUpperCase() : '';
-    const score = parseFloat(row[cScore]);
+    const name = (row[nameCol] || '').toString().trim();
+    const score = parseFloat(row[scoreCol]);
     if (name && !isNaN(score)) {
       out[name] = {
-        team, def:score,
-        gp:num(row,cGp), mpg:num(row,cMpg),
-        ppg:num(row,cPpg), rpg:num(row,cRpg), apg:num(row,cApg)
+        def: score,
+        gp:  num(row, gpCol),
+        mpg: num(row, mpgCol),
+        ppg: num(row, ppgCol),
+        rpg: num(row, rpgCol),
+        apg: num(row, apgCol),
       };
     }
   }
   return out;
 }
 
-// Sheet8 — left block (cols 0-2) = PO RAT. We only need the PO block here.
-function parsePoRatBase(csvText) {
-  const out = {};
+// ── Sheet8 parser: left block (cols 0-2) = postseason RAT, right block ───
+// (cols 6-8) = regular season RAT. Returns { rs: {name: rat}, po: {name: rat} }.
+// First row is "PLAYER,RAT,G,,,,PLAYER,RAT,G".
+function parseRatBase(csvText) {
+  const out = { rs: {}, po: {} };
   const rows = parseCSV(csvText);
   if (!rows || rows.length < 2) return out;
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i] || [];
-    const name = (row[0] || '').trim();
-    const rat = parseFloat(row[1]);
-    if (name && !isNaN(rat)) out[name] = rat;
+    const poName = (row[0] || '').trim();
+    const poRat = parseFloat(row[1]);
+    if (poName && !isNaN(poRat)) out.po[poName] = poRat;
+    const rsName = (row[6] || '').trim();
+    const rsRat = parseFloat(row[7]);
+    if (rsName && !isNaN(rsRat)) out.rs[rsName] = rsRat;
   }
   return out;
 }
 
-// ──────────────────────────────────────────────────────────────
-// Compute GR+ for each player. Mirrors processData() from the main page
-// with phase=po, but pulls TEAM from defense-po.
-// ──────────────────────────────────────────────────────────────
-function buildPlayers(defMap, poRatMap) {
-  // League-avg DEF_SCORE for the deviation baseline.
-  const dVals = Object.values(defMap).map(o => o && o.def).filter(v => typeof v === 'number' && !isNaN(v));
-  const dAvg = dVals.length ? (dVals.reduce((s,v) => s+v, 0) / dVals.length) : 0;
-
-  const out = [];
-  for (const name in defMap) {
-    const d = defMap[name];
-    // Match the existing PO phase filter: must have both a defensive entry
-    // (we already do — d is from defMap) AND a PO ratBase entry.
-    const ratBase = poRatMap[name];
-    if (typeof ratBase !== 'number') continue;
-    const defAdj = (d.def - dAvg) * DEF_WEIGHT;
-    const globalPlus = ratBase + defAdj + RAT_FLOOR_ADJ;
-    out.push({
-      player: name,
-      team: d.team || '',
-      ratBase, def:d.def, defAdj, globalPlus,
-      gp:d.gp, mpg:d.mpg, ppg:d.ppg, rpg:d.rpg, apg:d.apg
-    });
+// ── Build the rating ────────────────────────────────────────
+// ratBaseMap: { playerName: ratValue } for the active phase. For 365 it's the
+// RAT 365 from rm-tv; for RS/PO it's the matching block from Sheet8. Falls
+// back to whatever's in `ratingsRows` (RAT 365) if a player is missing from
+// the phase-specific sheet.
+function processData(ratingsRows, def365Map, ratBaseMap) {
+  const dataRows = ratingsRows.slice(1);
+  const roster = [];
+  // Ratings sheet (rm-tv): col 0 = TEAM, col 1 = PLAYER, col 2 = RAT 365.
+  for (const row of dataRows) {
+    while (row.length < 3) row.push('');
+    const team = (row[0] || '').trim();
+    const player = (row[1] || '').trim();
+    const rat365 = parseFloat(row[2]) || 0;
+    if (team && player) roster.push({ team, player, rat365 });
   }
-  out.sort((a,b) => b.globalPlus - a.globalPlus);
-  out.forEach((p,i) => p.rank = i + 1);
-  return { players: out, defAvg: dAvg };
+
+  // Pick the RAT base per phase. If the phase-specific map has the player,
+  // use it; otherwise fall back to RAT 365 so they still rank reasonably.
+  const useBase = (ratBaseMap && Object.keys(ratBaseMap).length > 0);
+  for (const p of roster) {
+    p.ratBase = (useBase && typeof ratBaseMap[p.player] === 'number')
+      ? ratBaseMap[p.player]
+      : p.rat365;
+  }
+  if (useBase) console.log('[GR+] Phase=' + PHASE + ' — base RAT mapped for ' + Object.keys(ratBaseMap).length + ' players');
+
+  // League-average DEF_SCORE for the deviation baseline.
+  const dVals = Object.values(def365Map).map(o => o && o.def).filter(v => typeof v === 'number' && !isNaN(v));
+  const dHas = dVals.length > 0;
+  const dAvg = dHas ? dVals.reduce((s,v) => s+v, 0) / dVals.length : 0;
+
+  for (const p of roster) {
+    const ds = def365Map[p.player] || null;
+    p.def365 = (ds && typeof ds.def === 'number') ? ds.def : null;
+    p.gp  = ds ? ds.gp  : null;
+    p.mpg = ds ? ds.mpg : null;
+    p.ppg = ds ? ds.ppg : null;
+    p.rpg = ds ? ds.rpg : null;
+    p.apg = ds ? ds.apg : null;
+    p.defAdj = (dHas && p.def365 !== null) ? (p.def365 - dAvg) * DEF_WEIGHT : 0;
+    // Use the phase-specific RAT base; +1.5 floor adjustment preserved.
+    p.globalPlus = p.ratBase + p.defAdj + 1.5;
+  }
+
+  // For RS and Playoffs phases, only include players who actually have an
+  // entry in that phase's defensive tab — i.e. they played enough games to
+  // qualify for that ranking. AND require a phase-specific RAT (so a player
+  // with playoff defense but no playoff offense ranking doesn't sneak in via
+  // their RAT 365 fallback).
+  let filtered = roster;
+  if (PHASE === 'rs' || PHASE === 'po') {
+    filtered = roster.filter(p => p.def365 !== null && (!useBase || typeof ratBaseMap[p.player] === 'number'));
+  }
+
+  filtered.sort((a,b) => b.globalPlus - a.globalPlus);
+  filtered.forEach((p,i) => p.rank = i + 1);
+
+  return { players: filtered, defAvg: dAvg, defHasData: dHas };
 }
 
-// ──────────────────────────────────────────────────────────────
-// Rendering
-// ──────────────────────────────────────────────────────────────
+// ── Rendering ───────────────────────────────────────────────
+function ratCls(r) { return r>=25?'rat-elite':r>=18?'rat-star':r>=10?'rat-solid':r>=4?'rat-avg':'rat-low'; }
 function rankCls(r) { return r<=5?'rank-top5':r<=20?'rank-top20':r<=50?'rank-top50':''; }
-function defCls(s)  { if (s===null||s===undefined) return 'rat-low'; return s>=28?'rat-elite':s>=20?'rat-star':s>=14?'rat-avg':'rat-low'; }
-function n(v, d=1)  { return (v===null || v===undefined || isNaN(v)) ? '—' : v.toFixed(d); }
+function defCls(s) { if (s===null) return 'rat-low'; return s>=28?'rat-elite':s>=20?'rat-star':s>=14?'rat-avg':'rat-low'; }
 
-function renderTop30(players) {
-  const top = players.slice(0, 30);
-  const html = top.map(p => `
-    <tr>
+function buildStats(d) {
+  const avgGR = d.players.length ? d.players.reduce((s,p)=>s+p.globalPlus,0)/d.players.length : 0;
+  const top = d.players[0];
+  document.getElementById('statsBar').innerHTML = [
+    {l:'Players Ranked', v:d.players.length, u:''},
+    {l:'#1 Global Rating+', v:(top?top.player:'—'), u:''},
+    {l:'Top GR+', v:(top?top.globalPlus.toFixed(1):'—'), u:'pts'},
+    {l:'Defense Weight', v:DEF_WEIGHT.toFixed(1), u:'×'},
+  ].map(c => `<div class="stat-card"><div class="label">${c.l}</div><div class="value">${c.v}${c.u?` <span class="unit">${c.u}</span>`:''}</div></div>`).join('');
+}
+
+function renderTable(players) {
+  const tb = document.getElementById('tableBody');
+  const n = (v, d=1) => (v===null || v===undefined || isNaN(v)) ? '—' : v.toFixed(d);
+  tb.innerHTML = players.map(p => {
+    return `<tr>
       <td class="col-rank ${rankCls(p.rank)}">${p.rank}</td>
-      <td class="col-player">
-        <div class="player-name">${p.player}</div>
-        <div class="player-team">${p.team ? `<img src="${logoUrl(p.team)}" alt="${p.team}" onerror="this.style.display='none'">` : ''}${p.team || ''}</div>
-      </td>
+      <td class="col-player"><div class="player-name">${p.player}</div><div class="player-team">${p.team}</div></td>
       <td class="col-num col-gr">${p.globalPlus.toFixed(2)}</td>
       <td class="col-num">${p.gp!==null && p.gp!==undefined ? Math.round(p.gp) : '—'}</td>
       <td class="col-num">${n(p.mpg)}</td>
       <td class="col-num">${n(p.ppg)}</td>
       <td class="col-num">${n(p.rpg)}</td>
       <td class="col-num">${n(p.apg)}</td>
-      <td class="col-num col-rat ${defCls(p.def)}">${p.def!==null?p.def.toFixed(1):'—'}</td>
-    </tr>`).join('');
-  document.getElementById('top30Body').innerHTML = html;
-  document.getElementById('top30Wrap').style.display = '';
-  document.getElementById('top30Meta').textContent =
-    `${players.length} qualifying players · league-avg Def PO ${data.defAvg.toFixed(1)}`;
-}
-
-function renderTeams(players) {
-  // Group by playoff team (defense-po TEAM).
-  const byTeam = {};
-  for (const p of players) {
-    if (!p.team) continue;
-    (byTeam[p.team] ||= []).push(p);
-  }
-  // Sort each team's players by GR+ desc and take top 15.
-  const teams = Object.keys(byTeam).map(abbr => {
-    const list = byTeam[abbr].sort((a,b) => b.globalPlus - a.globalPlus).slice(0, 15);
-    return { abbr, name: TEAM_FULL[abbr] || abbr, players: list, topGR: list[0]?.globalPlus ?? 0 };
-  });
-  // Order teams by their best player's GR+ desc (most impressive cards first).
-  teams.sort((a,b) => b.topGR - a.topGR);
-
-  const grid = document.getElementById('teamsGrid');
-  grid.innerHTML = teams.map(t => {
-    const rows = t.players.map((p,i) => `
-      <tr>
-        <td class="tt-rank">${i+1}</td>
-        <td class="tt-name">${p.player}</td>
-        <td class="tt-gr">${p.globalPlus.toFixed(2)}</td>
-        <td class="tt-stat">${n(p.mpg)} mpg</td>
-        <td class="tt-stat ${defCls(p.def)}">${p.def!==null?p.def.toFixed(1):'—'}</td>
-      </tr>`).join('');
-    const logo = logoUrl(t.abbr);
-    return `
-      <div class="team-card">
-        <div class="team-card-head">
-          ${logo ? `<img src="${logo}" alt="${t.abbr}" onerror="this.style.display='none'">` : ''}
-          <div>
-            <div class="name">${t.name}</div>
-            <div class="abbrev">${t.abbr} · ${t.players.length} players</div>
-          </div>
-          <span class="topgr">Top GR+ <b>${t.topGR.toFixed(2)}</b></span>
-        </div>
-        <table class="team-tbl"><tbody>${rows}</tbody></table>
-      </div>`;
+      <td class="col-num col-rat ${defCls(p.def365)}">${p.def365!==null?p.def365.toFixed(1):'—'}</td>
+    </tr>`;
   }).join('');
-  document.getElementById('teamsWrap').style.display = '';
-  document.getElementById('teamsMeta').textContent = `${teams.length} playoff teams`;
 }
 
-// ──────────────────────────────────────────────────────────────
-// Boot
-// ──────────────────────────────────────────────────────────────
-let data = null;
+function update() {
+  if (!appData) return;
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const team = document.getElementById('teamFilter').value;
+  const [sortKey, sortDir] = document.getElementById('sortSelect').value.split('-');
+  let f = appData.players.filter(p => {
+    if (team && p.team !== team) return false;
+    if (search && !p.player.toLowerCase().includes(search) && !p.team.toLowerCase().includes(search)) return false;
+    return true;
+  });
+  const dir = sortDir === 'desc' ? -1 : 1;
+  f.sort((a,b) => {
+    const av = a[sortKey] ?? -Infinity, bv = b[sortKey] ?? -Infinity;
+    return av < bv ? -1*dir : av > bv ? 1*dir : 0;
+  });
+  renderTable(f);
+}
+
+function populateTeamFilter(players) {
+  const teams = [...new Set(players.map(p => p.team))].sort();
+  const sel = document.getElementById('teamFilter');
+  sel.innerHTML = '<option value="">All Teams</option>' + teams.map(t => `<option value="${t}">${t}</option>`).join('');
+}
+
+// ── Data loading ────────────────────────────────────────────
+async function loadAll() {
+  const defenseUrl = DEFENSE_ENDPOINTS[PHASE] || DEFENSE_ENDPOINTS['365'];
+  const needRatBase = (PHASE === 'rs' || PHASE === 'po');
+  const [res, dRes, rbRes] = await Promise.all([
+    fetch(RATINGS_URL),
+    fetch(defenseUrl).catch(e => { console.warn('[Defense ' + PHASE + '] Fetch failed:', e.message); return null; }),
+    needRatBase
+      ? fetch(RAT_BASE_URL).catch(e => { console.warn('[RatBase] Fetch failed:', e.message); return null; })
+      : Promise.resolve(null)
+  ]);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const ratingsRows = parseCSV(await res.text());
+  let defMap = {};
+  if (dRes && dRes.ok) {
+    try { defMap = parseDef365(await dRes.json()); console.log('[Defense ' + PHASE + '] Map has', Object.keys(defMap).length, 'players'); }
+    catch(e) { console.warn('[Defense ' + PHASE + '] Parse error:', e.message); }
+  } else {
+    console.warn('[Defense ' + PHASE + '] No data — Global Rating+ falls back to RAT 365 only.');
+  }
+  // Phase-specific RAT base (RS or PO). For 365 we pass null so rat365 is used.
+  let ratBaseMap = null;
+  if (needRatBase && rbRes && rbRes.ok) {
+    try {
+      const parsed = parseRatBase(await rbRes.text());
+      ratBaseMap = (PHASE === 'rs') ? parsed.rs : parsed.po;
+      console.log('[RatBase] ' + PHASE + ' map: ' + Object.keys(ratBaseMap).length + ' players');
+    } catch(e) { console.warn('[RatBase] Parse error:', e.message); }
+  }
+  return processData(ratingsRows, defMap, ratBaseMap);
+}
+
 async function init() {
   try {
-    const [defR, rbR] = await Promise.all([
-      fetch(DEFENSE_URL),
-      fetch(RAT_BASE_URL)
-    ]);
-    if (!defR.ok) throw new Error(`Defense PO HTTP ${defR.status}`);
-    if (!rbR.ok)  throw new Error(`PO RatBase HTTP ${rbR.status}`);
-    const defJson = await defR.json();
-    const rbCsv   = await rbR.text();
-    const defMap   = parseDefPO(defJson);
-    const poRatMap = parsePoRatBase(rbCsv);
-    console.log('[GR+ PO] defMap=', Object.keys(defMap).length, 'poRatMap=', Object.keys(poRatMap).length);
-    data = buildPlayers(defMap, poRatMap);
-    if (!data.players.length) throw new Error('No qualifying players found (need both defensive entry and PO ratBase entry).');
+    syncPhasePills();
+    appData = await loadAll();
     document.getElementById('loadingArea').style.display = 'none';
-    renderTop30(data.players);
-    renderTeams(data.players);
+    document.getElementById('tableContainer').style.display = 'block';
+    document.getElementById('searchInput').disabled = false;
+    document.getElementById('teamFilter').disabled = false;
+    document.getElementById('sortSelect').disabled = false;
+    document.getElementById('refreshBtn').disabled = false;
+    populateTeamFilter(appData.players);
+    update();
+    document.getElementById('searchInput').addEventListener('input', update);
+    document.getElementById('teamFilter').addEventListener('change', update);
+    document.getElementById('sortSelect').addEventListener('change', update);
+    document.querySelectorAll('.phase-btn').forEach(btn => {
+      btn.addEventListener('click', () => setPhase(btn.dataset.phase));
+    });
   } catch(err) {
-    console.error('[GR+ PO] init failed:', err);
-    document.getElementById('loadingArea').innerHTML =
-      `<div class="error-msg">Failed to load 2026 playoffs ratings: ${err.message}</div>`;
+    document.getElementById('loadingArea').innerHTML = `<div class="error-msg">Failed to load ratings: ${err.message}</div>`;
   }
 }
+
+// Reflect the active phase on the pill bar.
+function syncPhasePills() {
+  document.querySelectorAll('.phase-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.phase === PHASE);
+  });
+}
+
+// Switch phase: update URL (no reload), reload data for the new tab, rerender.
+async function setPhase(newPhase) {
+  if (!VALID_PHASES.includes(newPhase) || newPhase === PHASE) return;
+  PHASE = newPhase;
+  syncPhasePills();
+  // Update URL so the choice is shareable (push state, no reload).
+  const url = new URL(location.href);
+  if (PHASE === '365') url.searchParams.delete('phase'); else url.searchParams.set('phase', PHASE);
+  history.replaceState(null, '', url.toString());
+  // Show loading overlay while we re-fetch.
+  document.getElementById('tableContainer').style.display = 'none';
+  document.getElementById('loadingArea').style.display = '';
+  try {
+    appData = await loadAll();
+    populateTeamFilter(appData.players);
+    document.getElementById('loadingArea').style.display = 'none';
+    document.getElementById('tableContainer').style.display = 'block';
+    update();
+  } catch(err) {
+    document.getElementById('loadingArea').innerHTML = `<div class="error-msg">Failed to load ${PHASE} ratings: ${err.message}</div>`;
+    document.getElementById('loadingArea').style.display = '';
+  }
+}
+
+async function refreshData() {
+  const btn = document.getElementById('refreshBtn');
+  btn.textContent = '⏳ Loading...'; btn.disabled = true;
+  try {
+    appData = await loadAll();
+    populateTeamFilter(appData.players);
+    // buildStats removed — stats-bar no longer rendered
+    update();
+    btn.textContent = '✅ Updated';
+    setTimeout(() => { btn.textContent = '🔄 Refresh'; }, 1500);
+  } catch(err) {
+    btn.textContent = '❌ Error';
+    setTimeout(() => { btn.textContent = '🔄 Refresh'; }, 2000);
+  }
+  btn.disabled = false;
+}
+
 init();
 </script>
 </body>
