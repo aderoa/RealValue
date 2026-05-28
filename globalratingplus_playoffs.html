@@ -50,22 +50,20 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
 .rat-elite { color:#b45309; } .rat-star { color:var(--accent); } .rat-solid { color:var(--accent-cyan); } .rat-avg { color:var(--text); } .rat-low { color:var(--text-muted); }
 .col-gr { font-weight:700; font-size:0.9rem; }
 
-/* === Team Grid === */
-.teams-grid { max-width:1200px; margin:0.5rem auto 2.5rem; padding:0 2rem; display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
-.team-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem 0.6rem; }
-.team-card-head { display:flex; align-items:center; gap:0.6rem; padding-bottom:0.65rem; border-bottom:1px solid var(--border); margin-bottom:0.45rem; }
-.team-card-head img { width:32px; height:32px; flex-shrink:0; }
-.team-card-head .name { font-weight:700; font-size:1rem; color:var(--text); }
-.team-card-head .abbrev { font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:var(--text-muted); letter-spacing:0.04em; }
+/* === Team cards: full-width, same table layout as Top-30 === */
+.teams-grid { max-width:1200px; margin:0.5rem auto 2.5rem; padding:0 2rem; display:flex; flex-direction:column; gap:1.5rem; }
+.team-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem 1.25rem 0.5rem; }
+.team-card-head { display:flex; align-items:center; gap:0.7rem; padding-bottom:0.7rem; border-bottom:1px solid var(--border); margin-bottom:0.4rem; }
+.team-card-head img { width:34px; height:34px; flex-shrink:0; }
+.team-card-head .name { font-weight:700; font-size:1.05rem; color:var(--text); line-height:1.2; }
+.team-card-head .abbrev { font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:var(--text-muted); letter-spacing:0.04em; margin-top:0.1rem; }
 .team-card-head .topgr { margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--text-muted); }
 .team-card-head .topgr b { color:var(--text); font-weight:600; }
-.team-tbl { width:100%; border-collapse:collapse; font-size:0.8rem; }
-.team-tbl td { padding:0.35rem 0.35rem; border-bottom:1px solid var(--border); }
-.team-tbl tr:last-child td { border-bottom:none; }
-.team-tbl .tt-rank { width:24px; color:var(--text-muted); font-family:'JetBrains Mono',monospace; font-size:0.7rem; text-align:right; }
-.team-tbl .tt-name { font-weight:600; font-size:0.82rem; }
-.team-tbl .tt-gr { width:60px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:0.78rem; font-weight:700; }
-.team-tbl .tt-stat { width:48px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--text2); }
+.team-card .table-container { padding:0; margin:0; max-width:100%; }
+.team-card table { font-size:0.8rem; }
+.team-card thead th { background:transparent; padding:0.45rem 0.4rem; font-size:0.58rem; }
+.team-card tbody td { padding:0.45rem 0.4rem; }
+.team-card tbody tr:last-child { border-bottom:none; }
 
 .loading-state { text-align:center; padding:4rem 2rem; color:var(--text2); }
 .loading-spinner { display:inline-block; width:36px; height:36px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:hmSpin 0.8s linear infinite; margin:0 auto 1rem; }
@@ -75,14 +73,14 @@ tbody td { padding:0.55rem 0.5rem; vertical-align:middle; white-space:nowrap; }
 .footer { max-width:1200px; margin:0 auto; padding:1.5rem 2rem 2.5rem; text-align:center; font-size:0.75rem; color:var(--text-muted); border-top:1px solid var(--border); }
 
 @media(max-width:900px) {
-  .teams-grid { grid-template-columns:1fr; gap:0.75rem; }
+  /* Cards already full-width on desktop; just tighten on narrow screens */
+  .teams-grid { gap:1rem; }
 }
 @media(max-width:600px) {
   .header{padding:1.25rem 1rem 1rem;} .header h1{font-size:1.25rem;}
   .table-container{padding:0 0.5rem;} td,th{padding:0.4rem 0.35rem;}
   .section-title{padding:0 1rem;} .teams-grid{padding:0 0.75rem;}
   .team-card{padding:0.85rem 0.75rem 0.4rem;}
-  .team-tbl .tt-stat{display:none;}
 }
 </style>
 </head>
@@ -323,6 +321,7 @@ function renderTeams(players) {
     (byTeam[p.team] ||= []).push(p);
   }
   // Sort each team's players by GR+ desc and take top 15.
+  // Players keep their GLOBAL rank (p.rank) — assigned in buildPlayers().
   const teams = Object.keys(byTeam).map(abbr => {
     const list = byTeam[abbr].sort((a,b) => b.globalPlus - a.globalPlus).slice(0, 15);
     return { abbr, name: TEAM_FULL[abbr] || abbr, players: list, topGR: list[0]?.globalPlus ?? 0 };
@@ -330,15 +329,37 @@ function renderTeams(players) {
   // Order teams by their best player's GR+ desc (most impressive cards first).
   teams.sort((a,b) => b.topGR - a.topGR);
 
+  // Shared thead — same columns as Top-30 table.
+  const theadRow = `
+    <thead>
+      <tr>
+        <th class="col-rank">#</th>
+        <th>Player</th>
+        <th style="text-align:right">Global Rating+</th>
+        <th style="text-align:right" title="Playoff games played">GP</th>
+        <th style="text-align:right" title="Minutes per game in the playoffs">MPG</th>
+        <th style="text-align:right" title="Points per game in the playoffs">PPG</th>
+        <th style="text-align:right" title="Rebounds per game in the playoffs">RPG</th>
+        <th style="text-align:right" title="Assists per game in the playoffs">APG</th>
+        <th style="text-align:right" title="Playoff DEF_SCORE composite">Def PO</th>
+      </tr>
+    </thead>`;
+
   const grid = document.getElementById('teamsGrid');
   grid.innerHTML = teams.map(t => {
-    const rows = t.players.map((p,i) => `
+    const rows = t.players.map(p => `
       <tr>
-        <td class="tt-rank">${i+1}</td>
-        <td class="tt-name">${p.player}</td>
-        <td class="tt-gr">${p.globalPlus.toFixed(2)}</td>
-        <td class="tt-stat">${n(p.mpg)} mpg</td>
-        <td class="tt-stat ${defCls(p.def)}">${p.def!==null?p.def.toFixed(1):'—'}</td>
+        <td class="col-rank ${rankCls(p.rank)}">${p.rank}</td>
+        <td class="col-player">
+          <div class="player-name">${p.player}</div>
+        </td>
+        <td class="col-num col-gr">${p.globalPlus.toFixed(2)}</td>
+        <td class="col-num">${p.gp!==null && p.gp!==undefined ? Math.round(p.gp) : '—'}</td>
+        <td class="col-num">${n(p.mpg)}</td>
+        <td class="col-num">${n(p.ppg)}</td>
+        <td class="col-num">${n(p.rpg)}</td>
+        <td class="col-num">${n(p.apg)}</td>
+        <td class="col-num col-rat ${defCls(p.def)}">${p.def!==null?p.def.toFixed(1):'—'}</td>
       </tr>`).join('');
     const logo = logoUrl(t.abbr);
     return `
@@ -351,11 +372,16 @@ function renderTeams(players) {
           </div>
           <span class="topgr">Top GR+ <b>${t.topGR.toFixed(2)}</b></span>
         </div>
-        <table class="team-tbl"><tbody>${rows}</tbody></table>
+        <div class="table-container">
+          <table>
+            ${theadRow}
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
       </div>`;
   }).join('');
   document.getElementById('teamsWrap').style.display = '';
-  document.getElementById('teamsMeta').textContent = `${teams.length} playoff teams`;
+  document.getElementById('teamsMeta').textContent = `${teams.length} playoff teams · ranks are global (out of ${players.length})`;
 }
 
 // ──────────────────────────────────────────────────────────────
