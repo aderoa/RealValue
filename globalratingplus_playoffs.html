@@ -448,18 +448,25 @@ function prestoTableHead() {
 // team is already in the h3 above.
 function prestoRow(p, showTeam) {
   const td    = 'padding:.45em .5em;font-family:sans-serif;font-size:.84em;vertical-align:middle';
-  const tdNum = td + ';text-align:right;font-family:\'JetBrains Mono\',monospace';
+  // NOWRAP combo — beats Presto CSS that may apply word-break:break-all !important.
+  // Inline styles with !important win over external !important rules.
+  const NW = 'white-space:nowrap !important;word-break:keep-all !important;overflow-wrap:normal !important;word-wrap:normal !important';
+  const tdNum = td + ';text-align:right;font-family:\'JetBrains Mono\',monospace;' + NW;
+  const tdPlayer = td + ';min-width:11em;' + NW;
   const fmt   = (v, d=1) => (v != null && !isNaN(v)) ? v.toFixed(d) : '\u2014';
   const gp    = (p.gp != null && !isNaN(p.gp)) ? Math.round(p.gp) : '\u2014';
   const rankColor = prestoRankColor(p.rank);
   const defColor  = prestoDefColor(p.def);
-  let playerCell = `<strong style="font-size:1.02em">${escapeHTML(p.player)}</strong>`;
+  // Last-resort safety: replace space with &nbsp; so the name becomes one
+  // "word" — survives even if all CSS gets stripped by the Presto sanitizer.
+  const safeName = escapeHTML(p.player).replace(/ /g, '\u00A0');
+  let playerCell = `<strong style="font-size:1.02em;${NW}">${safeName}</strong>`;
   if (showTeam && p.team) {
-    playerCell += `<div style="font-size:.78em;color:#5a6070;margin-top:.1em">${escapeHTML(p.team)}</div>`;
+    playerCell += `<div style="font-size:.78em;color:#5a6070;margin-top:.1em;${NW}">${escapeHTML(p.team)}</div>`;
   }
   return `      <tr>
         <td style="${td};text-align:center;font-weight:700;color:${rankColor};font-size:.95em">${p.rank}</td>
-        <td style="${td}">${playerCell}</td>
+        <td style="${tdPlayer}">${playerCell}</td>
         <td style="${tdNum};font-weight:700;font-size:.9em">${p.globalPlus.toFixed(2)}</td>
         <td style="${tdNum}">${gp}</td>
         <td style="${tdNum}">${fmt(p.mpg)}</td>
