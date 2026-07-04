@@ -213,8 +213,9 @@ function renderTM(d) {
   h += '</div>';
 
   if ((tm.recent||[]).length) {
-    h += `<div class="card" style="margin-top:1rem"><div class="card-hdr"><h2>🕐 Recent Trades</h2><div class="badge">last ${Math.min(tm.recent.length,50)}</div></div><div class="card-body"><div class="recent-list">`;
-    (tm.recent||[]).slice(0,50).forEach(r => {
+    const shown = Math.min(tm.recent.length, 100);
+    h += `<div class="card" style="margin-top:1rem"><div class="card-hdr"><h2>🕐 Recent Trades</h2><div class="badge">showing ${shown} · <a href="/api/trade-log?format=csv" style="color:inherit;text-decoration:underline">⬇ full log (CSV)</a></div></div><div class="card-body"><div class="recent-list" style="max-height:600px">`;
+    (tm.recent||[]).slice(0,100).forEach(r => {
       h += `<div class="recent-item"><span class="time">${fmtDate(r.ts)}</span><span class="action act-trade">Trade</span><span class="detail">${tradeDetail(r)}</span></div>`;
     });
     h += '</div></div></div>';
