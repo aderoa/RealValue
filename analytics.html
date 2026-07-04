@@ -192,6 +192,16 @@ function renderDS(d) {
   document.getElementById('ds-tab').innerHTML = h;
 }
 
+function tradeDetail(r) {
+  const money = v => (typeof v === 'number' && v) ? ` ($${(v/1e6).toFixed(1)}M)` : '';
+  if (r.sides && r.sides.length) {
+    return r.sides.map(s => {
+      const items = (s.out||[]).map(o => (typeof o === 'string') ? o : (o.name + money(o.salary) + (o.to ? ` → ${o.to}` : ''))).join(', ');
+      return `<b>${s.team}</b>: ${items}`;
+    }).join('<br>');
+  }
+  return `${(r.teams||[]).join(' ↔ ')}: ${(r.players||[]).join(', ')}`;
+}
 function renderTM(d) {
   const tm = d.tm || {};
   let h = '<div class="grid">';
@@ -205,9 +215,7 @@ function renderTM(d) {
   if ((tm.recent||[]).length) {
     h += `<div class="card" style="margin-top:1rem"><div class="card-hdr"><h2>🕐 Recent Trades</h2><div class="badge">last ${Math.min(tm.recent.length,50)}</div></div><div class="card-body"><div class="recent-list">`;
     (tm.recent||[]).slice(0,50).forEach(r => {
-      const teams = (r.teams||[]).join(' ↔ ');
-      const players = (r.players||[]).join(', ');
-      h += `<div class="recent-item"><span class="time">${fmtDate(r.ts)}</span><span class="action act-trade">Trade</span><span class="detail">${teams}: ${players}</span></div>`;
+      h += `<div class="recent-item"><span class="time">${fmtDate(r.ts)}</span><span class="action act-trade">Trade</span><span class="detail">${tradeDetail(r)}</span></div>`;
     });
     h += '</div></div></div>';
   }
@@ -243,7 +251,7 @@ function renderRecent(d) {
       label = 'Compare';
       detail = `${r.player1} vs ${r.player2}`;
     } else if (r.action === 'trade') {
-      detail = `${(r.teams||[]).join(' ↔ ')}: ${(r.players||[]).join(', ')}`;
+      detail = tradeDetail(r);
     } else if (r.action === 'sim_start') {
       label = 'Sim';
       detail = r.team || '';
