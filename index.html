@@ -236,8 +236,8 @@ const GP_AGE_THRESHOLD = 28; // Age at which GP correction starts fading
 const GP_AGE_DECAY = 0.12; // Exponential decay rate per year over threshold
 
 // Potential bonus for young players based on draft position and age
-const POTENTIAL_MAX = 25000000; // $25M maximum potential bonus
-const MIN_ROOKIE_AGE = 18 + 300/365; // 18 years 300 days (youngest realistic debut age)
+const POTENTIAL_MAX = 45000000; // $45M max potential bonus (rookies ~2x salary)
+const MIN_ROOKIE_AGE = 19.3; // youngest realistic draft age -> youngest picks get ~max bonus
 const MAX_POTENTIAL_AGE = 25; // No potential bonus after 25
 const DRAFT_DECAY = 0.05; // Exponential decay rate for draft position
 const AGE_DECAY = 0.5; // Exponential decay rate for age
