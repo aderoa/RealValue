@@ -633,9 +633,12 @@ function processData(rows, contractRows, defenseMapInput) {
   const WEAR_TEAR = 0.05;
 
   // Compute Trade Value for each player
-  const curCap = CAP_PROJ[2026];
+  const curCap = CAP_PROJ[2027];  // Real Value base season: 2026-27
   for (const p of roster) {
     const c = contractMap[p.player];
+    // Recalculate Real Value on 2026-27 salaries: use next season's number as the current salary.
+    const _s2627 = c ? c.yrs.find(y => y.year === 2027) : null;
+    if (_s2627) { p.salary = _s2627.salary; p.surplus = p.tradeValue - p.salary; }
     p.contractYears = [];
     p.contractEnd = 0;
     p.contractTV = 0;
@@ -651,15 +654,15 @@ function processData(rows, contractRows, defenseMapInput) {
     // Step 1: 2025-26 surplus (current season — no discount)
     const surplus26 = p.uncappedTV - p.salary;
     let tvSum = surplus26;
-    p.contractYears.push({ year: 2026, salary: p.salary, projVal: p.uncappedTV, surplus: surplus26, status: 'CURRENT', wt: 1.0 });
+    p.contractYears.push({ year: 2027, salary: p.salary, projVal: p.uncappedTV, surplus: surplus26, status: 'CURRENT', wt: 1.0 });
 
     // Step 2: Future contract years (2027+) with PO/TO detection and wear-and-tear
     let effectiveEnd = c.end;
     for (const yr of c.yrs) {
-      if (yr.year < 2027) continue;
+      if (yr.year < 2028) continue;
       const projCap = CAP_PROJ[yr.year];
       if (!projCap) continue;
-      const yearsOut = yr.year - 2026;
+      const yearsOut = yr.year - 2027;
       const wtFactor = Math.pow(1 - WEAR_TEAR, yearsOut);
       const projVal = Math.round(capPct * projCap * wtFactor);
 
