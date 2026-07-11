@@ -245,6 +245,7 @@ const MIN_ROOKIE_AGE = 19.3; // youngest realistic draft age -> youngest picks g
 const MAX_POTENTIAL_AGE = 25; // No potential bonus after 25
 const DRAFT_DECAY = 0.05; // Exponential decay rate for draft position
 const AGE_DECAY = 0.5; // Exponential decay rate for age
+const POT_EXP_DECAY = 0.35; // potential bonus fades with NBA experience (EXP=0 rookie = full, EXP>=1 realized)
 
 // NBA 2025-26 salary floor (minimums) and ceiling (max) by experience
 const SAL_CAP = 154647000;
@@ -576,7 +577,8 @@ function processData(rows, contractRows, defenseMapInput) {
   // Compute final real values: base TV + potential bonus
   for (const p of roster) {
     const baseTV = Math.round((p.tvWithAge / totalWithAge) * totalSalaryPool);
-    p.potentialBonus = calcPotentialBonus(p.age, p.draftPick);
+    const potExp = expMap[p.player] !== undefined ? expMap[p.player] : 0;
+    p.potentialBonus = Math.round(calcPotentialBonus(p.age, p.draftPick) * Math.exp(-POT_EXP_DECAY * potExp));
     p.uncappedTV = baseTV + p.potentialBonus;
   }
   // Renormalize so total TV = salary pool (potential bonuses inflate the total)
