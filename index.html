@@ -226,6 +226,8 @@ const KNEE = 14000; // Soft-cap: score = r^EXP / (1 + r^EXP / KNEE)
 const WM_WEIGHT = 0.92;
 const RAT_WEIGHT = 0.08;
 const AGE_MAX_BONUS = 0.85;
+const YOUTH_EXP_DECAY = 0.45; // youth "upside" bonus fades with NBA experience (EXP=0 rookie = full)
+const YOUTH_EXP_FLOOR = 0.30; // established young players keep this share (durability, not upside)
 const OLD_THRESHOLD = 35;
 const OLD_PENALTY_PER_YEAR = 0.03;
 const OLD_FLOOR = 0.50;
@@ -480,7 +482,11 @@ function processData(rows, contractRows, defenseMapInput) {
   // Age multiplier: youth bonus below avg, mild penalty above 35
   for (const p of roster) {
     if (p.age !== null && p.age < avgAge) {
-      p.ageMult = 1.0 + AGE_MAX_BONUS * (avgAge - p.age) / maxDevYoung;
+      // Experience-gate the youth bonus: a rookie gets the full upside boost, an established
+      // young player (e.g. a 4-yr starter like Duren) gets a fraction, decaying to a durability floor.
+      const expYears = expMap[p.player] !== undefined ? expMap[p.player] : 0;
+      const youthFactor = YOUTH_EXP_FLOOR + (1 - YOUTH_EXP_FLOOR) * Math.exp(-YOUTH_EXP_DECAY * expYears);
+      p.ageMult = 1.0 + AGE_MAX_BONUS * youthFactor * (avgAge - p.age) / maxDevYoung;
     } else if (p.age !== null && p.age >= OLD_THRESHOLD) {
       p.ageMult = Math.max(OLD_FLOOR, 1.0 - OLD_PENALTY_PER_YEAR * (p.age - OLD_THRESHOLD));
     } else {
