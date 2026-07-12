@@ -230,6 +230,8 @@ const RAT_WEIGHT = 0.08;
 const AGE_MAX_BONUS = 0.85;
 const YOUTH_EXP_DECAY = 0.45; // youth "upside" bonus fades with NBA experience (EXP=0 rookie = full)
 const YOUTH_EXP_FLOOR = 0.30; // established young players keep this share (durability, not upside)
+const INJ_PROTECT_ZERO_AGE = 35; // injury protection fades to 0 at this age (past-prime = real decline)
+const INJ_PROTECT_RANGE = 5;     // ...over this many years, so full protection holds at age <= 30
 const OLD_THRESHOLD = 35;
 const OLD_PENALTY_PER_YEAR = 0.03;
 const OLD_FLOOR = 0.50;
@@ -426,7 +428,11 @@ function processData(rows, contractRows, defenseMapInput) {
     if (priorDen > 0 && fullWM < priorWM * 0.95) {
       const dropPct = 1 - (fullWM / priorWM); // e.g. 0.10 = 10% drop, 0.50 = 50% drop
       const boost = dropPct > 0.20 ? 1.0 + dropPct * 0.12 : 1.0; // graduated boost for severe drops only
-      p.watermark = priorWM * boost;
+      const protectedWM = priorWM * boost;
+      // Age-gate: prime players (<=30) keep full injury protection (a lost season is a blip);
+      // it fades to 0 by ~35 -- for a past-prime player a lost season signals real decline, not a blip.
+      const protectFactor = (p.age !== null) ? Math.max(0, Math.min(1, (INJ_PROTECT_ZERO_AGE - p.age) / INJ_PROTECT_RANGE)) : 1.0;
+      p.watermark = fullWM + (protectedWM - fullWM) * protectFactor;
     } else {
       p.watermark = fullWM;
     }
