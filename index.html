@@ -232,6 +232,7 @@ const YOUTH_EXP_DECAY = 0.45; // youth "upside" bonus fades with NBA experience 
 const YOUTH_EXP_FLOOR = 0.30; // established young players keep this share (durability, not upside)
 const INJ_PROTECT_ZERO_AGE = 35; // injury protection fades to 0 at this age (past-prime = real decline)
 const INJ_PROTECT_RANGE = 5;     // ...over this many years, so full protection holds at age <= 30
+const STALE_MAX_DISCOUNT = 0.25; // a past-prime player who MISSED the season loses up to this much watermark
 const OLD_THRESHOLD = 35;
 const OLD_PENALTY_PER_YEAR = 0.03;
 const OLD_FLOOR = 0.50;
@@ -435,6 +436,13 @@ function processData(rows, contractRows, defenseMapInput) {
       p.watermark = fullWM + (protectedWM - fullWM) * protectFactor;
     } else {
       p.watermark = fullWM;
+    }
+    // Missed the current season entirely (no CUR_YEAR games -> den == priorDen): the watermark is
+    // stale prior form. Age-gate a discount so a past-prime vet (Lillard, 36) drops toward reality
+    // while a young returner (Tatum 28, Haliburton 26) is left alone.
+    if (priorDen > 0 && den <= priorDen + 1e-9) {
+      const staleFactor = (p.age !== null) ? Math.max(0, Math.min(1, (INJ_PROTECT_ZERO_AGE - p.age) / INJ_PROTECT_RANGE)) : 1.0;
+      p.watermark *= (1 - STALE_MAX_DISCOUNT * (1 - staleFactor));
     }
 
     const cur = hist.filter(h => h.year === CUR_YEAR);
