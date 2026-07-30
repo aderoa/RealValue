@@ -130,6 +130,7 @@ tbody tr { animation:fadeInRow 0.25s ease both; }
   <div class="header-inner">
     <div class="header-brand">
       <h1>🏀 Real Value</h1>
+      <div id="defBadge" class="def-badge">Defense: checking…</div>
     </div>
   </div>
 </div>
@@ -194,6 +195,11 @@ tbody tr { animation:fadeInRow 0.25s ease both; }
 </div>
 
 <div class="footer">HoopsMatic — Real Value Rankings</div>
+<style>
+.def-badge { font-size:0.7rem; font-family:'JetBrains Mono',monospace; margin-top:0.25rem; color:var(--text-muted); }
+.def-badge.ok { color:#15803d; }
+.def-badge.bad { color:#b45309; font-weight:600; }
+</style>
 
 <script>
 // Data proxied through Worker — no Sheet IDs or API keys in client code
@@ -201,6 +207,22 @@ const PROXY_BASE = 'https://hoopsmatic.com';
 const RATINGS_URL = PROXY_BASE + '/api/rm-tv';
 const CONTRACT_URL = PROXY_BASE + '/api/rm-contracts';
 const DEFENSE_URL = PROXY_BASE + '/api/defense-cache'; // SC/MPG cached by defense page
+
+let DEFENSE_STATUS = null;
+function renderDefenseBadge() {
+  const el = document.getElementById('defBadge');
+  if (!el) return;
+  const d = DEFENSE_STATUS;
+  if (!d || !d.entries) {
+    el.textContent = 'Defense: not loaded — rankings exclude the defensive factor';
+    el.className = 'def-badge bad';
+    return;
+  }
+  el.textContent = 'Defense active: ' + (d.exact + d.fuzzy) + ' players matched'
+    + (d.fuzzy ? ' (' + d.fuzzy + ' by name normalisation)' : '')
+    + ' · league avg SC/MPG ' + d.avg.toFixed(2);
+  el.className = 'def-badge ok';
+}
 
 // CSV parser for proxy endpoints
 function parseCSV(text) {
@@ -520,16 +542,49 @@ function processData(rows, contractRows, defenseMapInput) {
   }
 
   // Defensive SC/MPG: additive bonus to watermark (compounds through 3.2 exponent)
-  // Up to ±3 watermark points based on SC/MPG vs league average
+  // Up to ±3 watermark points based on SC/MPG vs league average.
+  //
+  // Name matching is deliberately tolerant. The ratings feed (/api/rm-tv) is
+  // text/csv, so the Worker rewrites those names through the NBA->HH name
+  // dictionary; /api/defense-cache is JSON and passes through untranslated.
+  // A straight key lookup therefore drops every player whose two spellings
+  // disagree -- accents, a missing period in "Jr", a hyphen -- and those
+  // players silently score zero defense instead of failing loudly.
   const DEF_MAX_BONUS = 1.5;
   const defVals = Object.values(defenseMap);
   const defAvg = defVals.length ? defVals.reduce((s,v) => s+v, 0) / defVals.length : 0;
+  const normName = n => String(n || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[.'`\u2019]/g, '')
+    .replace(/-/g, ' ')
+    .replace(/\b(jr|sr|ii|iii|iv)\b/g, '')
+    .replace(/\s+/g, ' ').trim();
+  const defByNorm = {};
+  for (const [k, v] of Object.entries(defenseMap)) {
+    const nk = normName(k);
+    if (nk && (defByNorm[nk] === undefined || v > defByNorm[nk])) defByNorm[nk] = v;
+  }
+  let defExact = 0, defFuzzy = 0, defMissed = 0;
   for (const p of roster) {
-    const playerDef = defenseMap[p.player] || 0;
+    let playerDef = defenseMap[p.player];
+    if (playerDef === undefined) {
+      playerDef = defByNorm[normName(p.player)];
+      if (playerDef !== undefined) defFuzzy++;
+    } else defExact++;
+    if (playerDef === undefined) { playerDef = 0; defMissed++; }
     p.defenseAdj = (defAvg > 0 && playerDef > 0) ? Math.max(-DEF_MAX_BONUS, Math.min(DEF_MAX_BONUS, (playerDef - defAvg) / defAvg * DEF_MAX_BONUS)) : 0;
     p.watermark += p.defenseAdj;
     p.rat365adj += p.defenseAdj;
   }
+  DEFENSE_STATUS = {
+    entries: defVals.length, avg: defAvg,
+    exact: defExact, fuzzy: defFuzzy, missed: defMissed,
+  };
+  console.log('[Defense] matched ' + (defExact + defFuzzy) + '/' + roster.length +
+    ' (' + defExact + ' exact, ' + defFuzzy + ' by normalised name), ' + defMissed +
+    ' unmatched, league avg SC/MPG ' + defAvg.toFixed(3));
+  if (typeof renderDefenseBadge === 'function') renderDefenseBadge();
 
   // Top-20 RAT 365 production bonus: elite current-season performers get a WM nudge
   const TOP20_TIERS = [{from:1,to:5,bonus:1.5},{from:6,to:10,bonus:1.2},{from:11,to:15,bonus:1.0},{from:16,to:20,bonus:0.8}];
