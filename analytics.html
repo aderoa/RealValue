@@ -265,15 +265,22 @@ function renderDT(d) {
 
   // pick rates — signed / seen, both directions
   const seen = dt.seenPlayers || {}, signed = dt.players || {};
-  const rate = Object.keys(seen).filter(n => seen[n] >= 3)
+  /* A minimum sample keeps a card dealt once at 100% from topping the table,
+     but a fixed floor of 3 showed nothing at all until the data was deep --
+     after one game every card has seen:1. Scale it instead: no floor early,
+     rising to 3 once there are enough games for it to mean something. */
+  const minSeen = games >= 40 ? 3 : games >= 12 ? 2 : 1;
+  const rate = Object.keys(seen).filter(n => seen[n] >= minSeen)
     .map(n => ({ n, seen: seen[n], signed: signed[n] || 0, pct: 100 * (signed[n]||0) / seen[n] }))
     .sort((a,b) => b.pct - a.pct || b.seen - a.seen);
   const tbl = list => '<table><thead><tr><th>Player</th><th>Signed</th><th>Dealt</th><th>Rate</th></tr></thead><tbody>'
     + list.map((r,i) => `<tr><td><span class="rank">${i+1}</span> ${r.n}</td><td>${r.signed}</td><td>${r.seen}</td><td>${Math.round(r.pct)}%</td></tr>`).join('')
     + '</tbody></table>';
   h += '<div class="grid" style="margin-top:1rem">';
-  h += `<div class="card"><div class="card-hdr"><h2>✅ Signed Most Often</h2><div class="badge">${rate.length} players</div></div><div class="card-body">${rate.length?tbl(rate.slice(0,25)):'<div class="empty">No data</div>'}</div></div>`;
-  h += `<div class="card"><div class="card-hdr"><h2>❌ Cut Most Often</h2><div class="badge">seen 3+ times</div></div><div class="card-body">${rate.length?tbl(rate.slice(-25).reverse()):'<div class="empty">No data</div>'}</div></div>`;
+  const half = rate.length > 6;   // enough distinct cards to be worth splitting
+  h += `<div class="card"><div class="card-hdr"><h2>✅ ${half?'Signed Most Often':'Pick Rate'}</h2><div class="badge">${rate.length} players</div></div><div class="card-body">${rate.length?tbl(rate.slice(0, half?25:50)):'<div class="empty">No data</div>'}</div></div>`;
+  if (!half) h += '';
+  if (half) h += `<div class="card"><div class="card-hdr"><h2>❌ Cut Most Often</h2><div class="badge">seen ${minSeen}+ time${minSeen>1?'s':''}</div></div><div class="card-body">${tbl(rate.slice(-25).reverse())}</div></div>`;
   h += '</div>';
 
   if ((dt.recent||[]).length) {
