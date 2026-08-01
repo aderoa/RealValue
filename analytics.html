@@ -60,6 +60,7 @@ tbody tr:hover{background:rgba(59,130,246,.02)}
   <button class="tab-btn" data-tab="ds">Draft Simulator</button>
   <button class="tab-btn" data-tab="compare">Player Comparisons</button>
   <button class="tab-btn" data-tab="tm">Trade Machine</button>
+  <button class="tab-btn" data-tab="dt">Dream Team Game</button>
   <button class="tab-btn" data-tab="recent">Recent Activity</button>
 </div>
 
@@ -67,6 +68,7 @@ tbody tr:hover{background:rgba(59,130,246,.02)}
 <div id="ds-tab" class="hidden"></div>
 <div id="compare-tab" class="hidden"></div>
 <div id="tm-tab" class="hidden"></div>
+<div id="dt-tab" class="hidden"></div>
 <div id="recent-tab" class="hidden"></div>
 
 <script>
@@ -97,6 +99,7 @@ function renderTopStats(d) {
     { val: Object.values(d.ds?.drafted||{}).reduce((s,v)=>s+v,0), label: 'DS Drafts' },
     { val: d.compare?.total || 0, label: 'Comparisons' },
     { val: d.tm?.trades || 0, label: 'Trades' },
+    { val: d.dt?.games || 0, label: 'DT Games' },
   ];
   el.innerHTML = stats.map(s => `<div class="stat-box"><div class="val">${s.val}</div><div class="label">${s.label}</div></div>`).join('');
 }
@@ -224,6 +227,67 @@ function renderTM(d) {
   document.getElementById('tm-tab').innerHTML = h;
 }
 
+/* Dream Team Game.
+   Pick rate is signed/seen, so it is out of the times a card was actually
+   DEALT rather than out of all games -- a player only gets the chance to be
+   signed when he reaches the board. The learning curve reads how a visitor's
+   results move as they play more: buckets 1-10 individually, then in bands. */
+function renderDT(d) {
+  const dt = d.dt || {};
+  const games = dt.games || 0;
+  if (!games) { document.getElementById('dt-tab').innerHTML = '<div class="empty">No Dream Team games recorded yet</div>'; return; }
+
+  const pct = n => Math.round(100 * n / games) + '%';
+  let h = '<div class="grid">';
+  h += `<div class="card"><div class="card-hdr"><h2>🏆 Results</h2><div class="badge">${games} games</div></div><div class="card-body">
+    <table><tbody>
+      <tr><td>Games played</td><td>${games}</td></tr>
+      <tr><td>Won</td><td>${dt.wins||0} <span style="opacity:.6">(${pct(dt.wins||0)})</span></td></tr>
+      <tr><td>Average margin</td><td>${((dt.diffSum||0)/games).toFixed(1)}</td></tr>
+      <tr><td>Points for / against</td><td>${((dt.forSum||0)/games).toFixed(1)} / ${((dt.againstSum||0)/games).toFixed(1)}</td></tr>
+      <tr><td>Went to overtime</td><td>${dt.ot||0} <span style="opacity:.6">(${pct(dt.ot||0)})</span></td></tr>
+      <tr><td>Perfect drafts</td><td>${dt.perfect||0} <span style="opacity:.6">(${pct(dt.perfect||0)})</span></td></tr>
+    </tbody></table></div></div>`;
+
+  // learning curve
+  const order = ['1','2','3','4','5','6','7','8','9','10','11-25','26-50','51-100','101-250','250+'];
+  const bp = dt.byPlay || {};
+  const rows = order.filter(k => bp[k]).map(k => {
+    const b = bp[k];
+    return `<tr><td>${k === '250+' ? '250+' : (isNaN(+k) ? k : 'game ' + k)}</td>
+      <td>${b.games}</td><td>${Math.round(100*b.wins/b.games)}%</td>
+      <td>${(b.diffSum/b.games).toFixed(1)}</td></tr>`;
+  }).join('');
+  h += `<div class="card"><div class="card-hdr"><h2>📈 Learning Curve</h2><div class="badge">by play number</div></div><div class="card-body">
+    ${rows ? `<table><thead><tr><th>Nth game</th><th>Games</th><th>Win %</th><th>Avg margin</th></tr></thead><tbody>${rows}</tbody></table>`
+           : '<div class="empty">Not enough data yet</div>'}</div></div>`;
+  h += '</div>';
+
+  // pick rates — signed / seen, both directions
+  const seen = dt.seenPlayers || {}, signed = dt.players || {};
+  const rate = Object.keys(seen).filter(n => seen[n] >= 3)
+    .map(n => ({ n, seen: seen[n], signed: signed[n] || 0, pct: 100 * (signed[n]||0) / seen[n] }))
+    .sort((a,b) => b.pct - a.pct || b.seen - a.seen);
+  const tbl = list => '<table><thead><tr><th>Player</th><th>Signed</th><th>Dealt</th><th>Rate</th></tr></thead><tbody>'
+    + list.map((r,i) => `<tr><td><span class="rank">${i+1}</span> ${r.n}</td><td>${r.signed}</td><td>${r.seen}</td><td>${Math.round(r.pct)}%</td></tr>`).join('')
+    + '</tbody></table>';
+  h += '<div class="grid" style="margin-top:1rem">';
+  h += `<div class="card"><div class="card-hdr"><h2>✅ Signed Most Often</h2><div class="badge">${rate.length} players</div></div><div class="card-body">${rate.length?tbl(rate.slice(0,25)):'<div class="empty">No data</div>'}</div></div>`;
+  h += `<div class="card"><div class="card-hdr"><h2>❌ Cut Most Often</h2><div class="badge">seen 3+ times</div></div><div class="card-body">${rate.length?tbl(rate.slice(-25).reverse()):'<div class="empty">No data</div>'}</div></div>`;
+  h += '</div>';
+
+  if ((dt.recent||[]).length) {
+    h += `<div class="card" style="margin-top:1rem"><div class="card-hdr"><h2>🕐 Recent Games</h2><div class="badge">showing ${Math.min(dt.recent.length,100)}</div></div><div class="card-body"><div class="recent-list" style="max-height:600px">`;
+    dt.recent.slice(0,100).forEach(r => {
+      h += `<div class="recent-item"><span class="time">${fmtDate(r.ts)}</span>
+        <span class="action act-trade">${r.win ? 'Win' : 'Loss'}</span>
+        <span class="detail">${r.diff>0?'+':''}${r.diff} &middot; ${r.play}${r.play===1?'st':r.play===2?'nd':r.play===3?'rd':'th'} game${r.ot?' &middot; OT':''}</span></div>`;
+    });
+    h += '</div></div></div>';
+  }
+  document.getElementById('dt-tab').innerHTML = h;
+}
+
 function renderRecent(d) {
   const all = [];
   (d.rm?.recent||[]).forEach(r => all.push({...r, tool:'rm'}));
@@ -293,6 +357,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     renderDS(d);
     renderCompare(d);
     renderTM(d);
+    renderDT(d);
     renderRecent(d);
   } catch(e) {
     document.getElementById('rm-tab').innerHTML = '<div class="empty">Failed to load tracker data</div>';
