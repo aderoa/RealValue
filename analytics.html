@@ -238,6 +238,16 @@ function renderDT(d) {
   if (!games) { document.getElementById('dt-tab').innerHTML = '<div class="empty">No Dream Team games recorded yet</div>'; return; }
 
   const pct = n => Math.round(100 * n / games) + '%';
+  /* Overtime W-L is read off otGames, not off ot: the latter counts every
+     overtime ever played, including the ones logged before the result was
+     recorded, and dividing by it would report those as losses. Where the two
+     disagree, say how many the record actually covers. */
+  const otG = dt.otGames || 0, otW = dt.otWins || 0, otL = otG - otW;
+  const otRow = otG
+    ? `<tr><td>Overtime record</td><td>${otW}&ndash;${otL}
+        <span style="opacity:.6">(${Math.round(100 * otW / otG)}%${
+          (dt.ot || 0) > otG ? ', of ' + otG + ' recorded' : ''})</span></td></tr>`
+    : '';
   let h = '<div class="grid">';
   h += `<div class="card"><div class="card-hdr"><h2>🏆 Results</h2><div class="badge">${games} games</div></div><div class="card-body">
     <table><tbody>
@@ -246,6 +256,7 @@ function renderDT(d) {
       <tr><td>Average margin</td><td>${((dt.diffSum||0)/games).toFixed(1)}</td></tr>
       <tr><td>Points for / against</td><td>${((dt.forSum||0)/games).toFixed(1)} / ${((dt.againstSum||0)/games).toFixed(1)}</td></tr>
       <tr><td>Went to overtime</td><td>${dt.ot||0} <span style="opacity:.6">(${pct(dt.ot||0)})</span></td></tr>
+      ${otRow}
       <tr><td>Perfect drafts</td><td>${dt.perfect||0} <span style="opacity:.6">(${pct(dt.perfect||0)})</span></td></tr>
     </tbody></table></div></div>`;
 
