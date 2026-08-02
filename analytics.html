@@ -238,16 +238,29 @@ function renderDT(d) {
   if (!games) { document.getElementById('dt-tab').innerHTML = '<div class="empty">No Dream Team games recorded yet</div>'; return; }
 
   const pct = n => Math.round(100 * n / games) + '%';
-  /* Overtime W-L is read off otGames, not off ot: the latter counts every
-     overtime ever played, including the ones logged before the result was
-     recorded, and dividing by it would report those as losses. Where the two
-     disagree, say how many the record actually covers. */
-  const otG = dt.otGames || 0, otW = dt.otWins || 0, otL = otG - otW;
-  const otRow = otG
-    ? `<tr><td>Overtime record</td><td>${otW}&ndash;${otL}
+  /* Overtime W-L.
+     The Worker keeps otGames/otWins from here on, but those only come into
+     existence the next time somebody finishes a game -- so on a bucket with
+     hundreds of games already in it the row would simply be absent until then.
+     The recent log already carries `ot` and `win` per game, so derive it here
+     whenever the counters are not there yet and the row shows up straight away.
+
+     It is NOT divided into `ot`: that counts every overtime ever played,
+     including ones from before any result was kept, and dividing by it would
+     report all of those as losses. Where the two disagree, say how many games
+     the record actually covers. */
+  let otG = dt.otGames, otW = dt.otWins;
+  if (otG == null) {
+    otG = 0; otW = 0;
+    (dt.recent || []).forEach(g => { if (g && g.ot) { otG++; if (g.win) otW++; } });
+  }
+  const otAll = dt.ot || 0;
+  const otRow = !otAll ? ''
+    : otG ? `<tr><td>Overtime record</td><td>${otW}&ndash;${otG - otW}
         <span style="opacity:.6">(${Math.round(100 * otW / otG)}%${
-          (dt.ot || 0) > otG ? ', of ' + otG + ' recorded' : ''})</span></td></tr>`
-    : '';
+          otAll > otG ? ', of ' + otG + ' recorded' : ''})</span></td></tr>`
+          : `<tr><td>Overtime record</td><td>&mdash;
+        <span style="opacity:.6">(no results kept for these)</span></td></tr>`;
   let h = '<div class="grid">';
   h += `<div class="card"><div class="card-hdr"><h2>🏆 Results</h2><div class="badge">${games} games</div></div><div class="card-body">
     <table><tbody>
@@ -276,21 +289,33 @@ function renderDT(d) {
 
   // pick rates — signed / seen, both directions
   const seen = dt.seenPlayers || {}, signed = dt.players || {};
-  /* No minimum. Every card that was dealt is listed, 1/1 included -- the raw
-     count sits beside the rate, so a small sample is visible rather than
-     hidden. Ties on rate fall back to how often the card was dealt, which
-     puts the better-evidenced ones first. */
-  const rate = Object.keys(seen)
-    .map(n => ({ n, seen: seen[n], signed: signed[n] || 0, pct: 100 * (signed[n]||0) / seen[n] }))
-    .sort((a,b) => b.pct - a.pct || b.seen - a.seen);
-  const tbl = list => '<table><thead><tr><th>Player</th><th>Signed</th><th>Dealt</th><th>Rate</th></tr></thead><tbody>'
-    + list.map((r,i) => `<tr><td><span class="rank">${i+1}</span> ${r.n}</td><td>${r.signed}</td><td>${r.seen}</td><td>${Math.round(r.pct)}%</td></tr>`).join('')
+  /* Ordered by TOTALS, not by rate. Sorting on a percentage put a card dealt
+     once and signed once at the top on 100%, and a card dealt once and cut
+     once at the top of the other table on 0% -- both tables filled up with
+     single-sighting noise and neither answered the question they are named
+     after. Rank on how many times it actually happened; the rate stays as the
+     supporting column, and ties on the count fall back to it.
+
+     Each table counts its own event: Signed for one, Cut (dealt minus signed)
+     for the other, each with the matching rate. Showing a signed-rate beside a
+     cut count would read as a contradiction. */
+  const rate = Object.keys(seen).map(n => {
+    const dealt = seen[n], sg = signed[n] || 0;
+    return { n, seen: dealt, signed: sg, cut: dealt - sg,
+             pct: 100 * sg / dealt, cutPct: 100 * (dealt - sg) / dealt };
+  });
+  const bySigned = rate.slice().filter(r => r.signed > 0)
+                       .sort((a,b) => b.signed - a.signed || b.pct - a.pct);
+  const byCut    = rate.slice().filter(r => r.cut > 0)
+                       .sort((a,b) => b.cut - a.cut || b.cutPct - a.cutPct);
+  const tbl = (list, key, label, rateKey) =>
+    `<table><thead><tr><th>Player</th><th>${label}</th><th>Dealt</th><th>Rate</th></tr></thead><tbody>`
+    + list.map((r,i) => `<tr><td><span class="rank">${i+1}</span> ${r.n}</td><td>${r[key]}</td><td>${r.seen}</td><td>${Math.round(r[rateKey])}%</td></tr>`).join('')
     + '</tbody></table>';
   h += '<div class="grid" style="margin-top:1rem">';
   const half = rate.length > 6;   // enough distinct cards to be worth splitting
-  h += `<div class="card"><div class="card-hdr"><h2>✅ ${half?'Signed Most Often':'Pick Rate'}</h2><div class="badge">${rate.length} players</div></div><div class="card-body">${rate.length?tbl(rate.slice(0, half?25:50)):'<div class="empty">No data</div>'}</div></div>`;
-  if (!half) h += '';
-  if (half) h += `<div class="card"><div class="card-hdr"><h2>❌ Cut Most Often</h2><div class="badge">${rate.length} players</div></div><div class="card-body">${tbl(rate.slice(-25).reverse())}</div></div>`;
+  h += `<div class="card"><div class="card-hdr"><h2>✅ ${half?'Signed Most Often':'Pick Rate'}</h2><div class="badge">${bySigned.length} players</div></div><div class="card-body">${bySigned.length?tbl(bySigned.slice(0, half?25:50),'signed','Signed','pct'):'<div class="empty">No data</div>'}</div></div>`;
+  if (half) h += `<div class="card"><div class="card-hdr"><h2>❌ Cut Most Often</h2><div class="badge">${byCut.length} players</div></div><div class="card-body">${byCut.length?tbl(byCut.slice(0,25),'cut','Cut','cutPct'):'<div class="empty">No data</div>'}</div></div>`;
   h += '</div>';
 
   if ((dt.recent||[]).length) {
