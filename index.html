@@ -270,6 +270,27 @@ const STALE_MAX_DISCOUNT = 0.25; // a past-prime player who MISSED the season lo
 const DECLINE_START = 29;
 const DECLINE_PER_YEAR = 0.025;
 const OLD_FLOOR = 0.50;
+// AVAILABILITY -- one free injury, but not a decade of them.
+//
+// Removing gpCorr stopped absence being rewarded but left it costing nothing:
+// 45 games at 21.55 scored the same per game as 82 games at 21.55. Embiid was
+// 7th in the league off 262 of a possible 410 games.
+//
+// Measured per season, with THE SINGLE WORST SEASON THROWN AWAY, so one bad
+// year is free and only a pattern is charged. Tatum's 22-game return and
+// Haliburton's missed season both come out at 0.98+ and pay nothing; Embiid,
+// Davis, Leonard and Williamson sit at 0.66-0.77 and pay 15-27%.
+//
+// AVAIL_FULL sits just above the league median of 0.860 and below p90 of
+// 0.976, so the slightly-dinged escape and the chronic cases do not. 0.95 is
+// the harsher setting and would start charging the median player.
+//
+// AVAIL_FLOOR caps the worst case at a 40% cut. At p10 of 0.598 it does not
+// bind -- it is a guard against a bad row rather than a tier.
+const AVAIL_FULL = 0.90;
+const AVAIL_FLOOR = 0.60;
+const AVAIL_MIN_SEASONS = 3;   // fewer than this is no pattern; the ramp has them
+const AVAIL_DROP_WORST = 1;    // the free injury
 const GAMES_BETA = 0.8;
 const GAMES_MAX_MULT = 2.5;
 const GAMES_MIN_PCT = 0.25;
@@ -773,7 +794,27 @@ function processData(rows, contractRows, defenseMapInput) {
     // Shooting penalty: decrease by (value × 100)%
     p.shootingPenalty = (shootingMap[p.player] || 0) * 2;
     p.shootingMult = 1 - p.shootingPenalty;
-    p.tvWithAge = p.tvPreAge * p.ageMult * p.shootingMult;
+    // AVAILABILITY. Per season, worst season discarded, the rest averaged --
+    // see AVAIL_FULL above. It belongs here beside ageMult and shootingMult
+    // because availability is a property of the asset, not of the per-game
+    // rate: on the watermark the 3.2 exponent would roughly triple it.
+    //
+    // A season the player missed entirely has no row in the sheet and so is
+    // absent from seasonInfo. That is why this does not double-count with the
+    // stale discount, which is the mechanism for exactly that case.
+    const availSeasons = (p.seasonInfo || []).filter(s => s.games > 0);
+    const availShares = availSeasons
+      .map(s => Math.min(1, s.games / (EXPECTED[s.year] || 82)))
+      .sort((x, y) => x - y)
+      .slice(AVAIL_DROP_WORST);
+    if (availSeasons.length >= AVAIL_MIN_SEASONS && availShares.length > 0) {
+      p.availability = availShares.reduce((a, v) => a + v, 0) / availShares.length;
+      p.availMult = Math.max(AVAIL_FLOOR, Math.min(1, p.availability / AVAIL_FULL));
+    } else {
+      p.availability = null;
+      p.availMult = 1;
+    }
+    p.tvWithAge = p.tvPreAge * p.ageMult * p.shootingMult * p.availMult;
   }
   const totalWithAge = roster.reduce((s,p) => s + p.tvWithAge, 0);
   
