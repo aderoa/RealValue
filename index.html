@@ -254,6 +254,10 @@ const YOUTH_EXP_DECAY = 0.45; // youth "upside" bonus fades with NBA experience 
 const YOUTH_EXP_FLOOR = 0.30; // established young players keep this share (durability, not upside)
 const INJ_PROTECT_ZERO_AGE = 35; // injury protection fades to 0 at this age (past-prime = real decline)
 const INJ_PROTECT_RANGE = 5;     // ...over this many years, so full protection holds at age <= 30
+// Injury protection applies only when THIS season is the short one. Above
+// this share of a season there is nothing to protect: the season played is
+// the best evidence there is. ~61 of 82 games.
+const INJ_PROTECT_MAX_PCT = 0.75;
 const STALE_MAX_DISCOUNT = 0.25; // a past-prime player who MISSED the season loses up to this much watermark
 const OLD_THRESHOLD = 35;
 const OLD_PENALTY_PER_YEAR = 0.03;
@@ -423,9 +427,37 @@ function processData(rows, contractRows, defenseMapInput) {
     return rawPerGame * rawMult;
   }
 
-  const SEASON_WEIGHT = {'2025-26':1.0,'2024-25':0.6,'2023-24':0.36,'2022-23':0.216,'2021-22':0.1296};
-  const CUR_YEAR = '2025-26';
-  const EXPECTED = {'2021-22':82,'2022-23':82,'2023-24':82,'2024-25':82,'2025-26':82};
+  // THE SEASON WINDOW, READ OFF THE DATA.
+  //
+  // The newest SEASON_SPAN seasons present in the ratings sheet, each worth
+  // SEASON_DECAY of the one after it -- 1, 0.6, 0.36, 0.216, 0.1296, exactly
+  // the weights that used to be typed here. Anything older is dropped.
+  //
+  // Derived rather than named because a named year goes stale silently and
+  // takes an afternoon to find. The watermark is a weighted mean, so scaling
+  // every weight by the same factor changes nothing: the only real effect of
+  // a new season arriving is that the oldest one falls out of the window.
+  const SEASON_SPAN = 5;
+  const SEASON_DECAY = 0.6;
+  const SEASON_YEARS = [...new Set(historical.map(h => h.year))]
+    .filter(y => /^\d{4}-\d{2}$/.test(y))
+    .sort()
+    .reverse()
+    .slice(0, SEASON_SPAN);
+  const SEASON_WEIGHT = {};
+  const EXPECTED = {};
+  SEASON_YEARS.forEach((y, i) => {
+    SEASON_WEIGHT[y] = Math.pow(SEASON_DECAY, i);
+    EXPECTED[y] = 82;
+  });
+  // The current season is the newest the DATA has, not the newest the
+  // calendar has. Naming a season the sheet does not carry would leave every
+  // player with no current-season rows, and the "missed the whole season"
+  // discount below would fire for the entire league at once.
+  const CUR_YEAR = SEASON_YEARS[0] || '';
+  const PREV_YEAR = SEASON_YEARS[1] || '';
+  if (!SEASON_YEARS.length) console.warn('[RV] no season blocks found in the ratings sheet');
+  console.log('[RV] season window:', SEASON_YEARS.map(y => y + '=' + SEASON_WEIGHT[y].toFixed(4)).join(' '));
 
   for (const p of roster) {
     const hist = playerHist[p.player.toLowerCase()] || [];
@@ -447,8 +479,18 @@ function processData(rows, contractRows, defenseMapInput) {
     }
     const fullWM = den > 0 ? num / den : 0;
     const priorWM = priorDen > 0 ? priorNum / priorDen : 0;
+    // WHICH SEASON WAS SHORT.
+    //
+    // Protection is for a player whose CURRENT season was cut short. Without
+    // this test it fired just as readily when the thin season was the PRIOR
+    // one -- and then replaced a complete season with a fragment of an older
+    // one. Jared McCain, 25 October 2026: 82 games at 6.24 a game discarded
+    // in favour of 23 games at 9.61, themselves already multiplied by 2.5 by
+    // the games correction, which put him second in the league.
+    const curPct = hist.reduce((s, h) => s + (h.year === CUR_YEAR ? h.games : 0), 0)
+                   / (EXPECTED[CUR_YEAR] || 82);
     // Injury protection: only kicks in for drops > 5% (filters out natural variance)
-    if (priorDen > 0 && fullWM < priorWM * 0.95) {
+    if (priorDen > 0 && fullWM < priorWM * 0.95 && curPct < INJ_PROTECT_MAX_PCT) {
       const dropPct = 1 - (fullWM / priorWM); // e.g. 0.10 = 10% drop, 0.50 = 50% drop
       const boost = dropPct > 0.20 ? 1.0 + dropPct * 0.12 : 1.0; // graduated boost for severe drops only
       const protectedWM = priorWM * boost;
@@ -503,7 +545,8 @@ function processData(rows, contractRows, defenseMapInput) {
         }
       } else { p.rat365adj = p.rat365; }
     } else {
-      const prev = hist.filter(h => h.year === '2024-25');
+      // The season before the current one, from the same derived window.
+      const prev = hist.filter(h => h.year === PREV_YEAR);
       const pg = prev.reduce((s,h) => s+h.games, 0) || 82;
       const pct = pg / 82;
       if (pct >= GAMES_MIN_PCT) {
