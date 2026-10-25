@@ -259,8 +259,16 @@ const INJ_PROTECT_RANGE = 5;     // ...over this many years, so full protection 
 // the best evidence there is. ~61 of 82 games.
 const INJ_PROTECT_MAX_PCT = 0.75;
 const STALE_MAX_DISCOUNT = 0.25; // a past-prime player who MISSED the season loses up to this much watermark
-const OLD_THRESHOLD = 35;
-const OLD_PENALTY_PER_YEAR = 0.03;
+// AGE DECLINE -- starts at the end of prime, not at 35.
+//
+// The youth bonus is scaled by (avgAge - age), so it reaches zero at the
+// league average age of about 26.3. Decline used to begin at 35. Nothing was
+// defined between, so Tatum at 28.6, Jokic at 31.7, Embiid at 32.6 and Davis
+// at 33.6 all got exactly 1.000 -- nine years in which age did nothing.
+//
+// Replaces a threshold of 35 and a penalty of 0.03 a year.
+const DECLINE_START = 29;
+const DECLINE_PER_YEAR = 0.025;
 const OLD_FLOOR = 0.50;
 const GAMES_BETA = 0.8;
 const GAMES_MAX_MULT = 2.5;
@@ -578,17 +586,28 @@ function processData(rows, contractRows, defenseMapInput) {
     }
   }
 
-  // Age multiplier: youth bonus below avg, mild penalty above 35
+  // Age multiplier: youth upside below the league average, decline from 29,
+  // and a short prime plateau between the two.
+  //
+  // DECLINE IS TESTED FIRST, ON PURPOSE. The youth branch keys off avgAge,
+  // which is read from the data and drifts upward as the league ages. If it
+  // ever passed DECLINE_START the two conditions would overlap, and with the
+  // youth test first a 29-year-old would collect a youth bonus. This order is
+  // correct for any value avgAge takes.
   for (const p of roster) {
-    if (p.age !== null && p.age < avgAge) {
+    if (p.age === null) {
+      p.ageMult = 1.0;
+    } else if (p.age >= DECLINE_START) {
+      p.ageMult = Math.max(OLD_FLOOR, 1.0 - DECLINE_PER_YEAR * (p.age - DECLINE_START));
+    } else if (p.age < avgAge) {
       // Experience-gate the youth bonus: a rookie gets the full upside boost, an established
       // young player (e.g. a 4-yr starter like Duren) gets a fraction, decaying to a durability floor.
       const expYears = expMap[p.player] !== undefined ? expMap[p.player] : 0;
       const youthFactor = YOUTH_EXP_FLOOR + (1 - YOUTH_EXP_FLOOR) * Math.exp(-YOUTH_EXP_DECAY * expYears);
       p.ageMult = 1.0 + AGE_MAX_BONUS * youthFactor * (avgAge - p.age) / maxDevYoung;
-    } else if (p.age !== null && p.age >= OLD_THRESHOLD) {
-      p.ageMult = Math.max(OLD_FLOOR, 1.0 - OLD_PENALTY_PER_YEAR * (p.age - OLD_THRESHOLD));
     } else {
+      // The prime plateau: 26.3 to 29. The one place a flat multiplier is
+      // defensible, and it is now 2.7 years wide rather than nine.
       p.ageMult = 1.0;
     }
   }
