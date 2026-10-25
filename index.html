@@ -294,6 +294,19 @@ const AVAIL_DROP_WORST = 1;    // the free injury
 const GAMES_BETA = 0.8;
 const GAMES_MAX_MULT = 2.5;
 const GAMES_MIN_PCT = 0.25;
+// CURRENT INJURY -- forward-looking, driven by a return DATE.
+//
+// A player out for months should not carry his healthy value. Out until
+// mid-February is about half of it today, and it comes back on its own as the
+// date approaches: 12+ weeks still to miss is the full cut, 6 weeks is -25%,
+// one week is -4%, and the day he is due back it is gone.
+//
+// A date rather than a status because a date decays by itself. A status has to
+// be cleared by hand, and a stale "OUT" nobody remembers to clear is the same
+// failure mode as the hardcoded season years this project has already been
+// bitten by three times -- and just as invisible.
+const INJURY_MAX_CUT = 0.50;    // the most a current injury can take
+const INJURY_FULL_WEEKS = 12;   // three months still to miss = the full cut
 const GP_AGE_THRESHOLD = 28; // Age at which GP correction starts fading
 const GP_AGE_DECAY = 0.12; // Exponential decay rate per year over threshold
 
@@ -412,8 +425,38 @@ function processData(rows, contractRows, defenseMapInput) {
     console.log('[Defense] No defense data — visit hoopsmatic.com/defense first to populate the cache');
   }
 
+  // CURRENT-INJURY RETURN DATES, if the sheet carries them.
+  //
+  // Scanned from the header row so the column can be added later without
+  // touching this file. Absent, injuryMap stays empty and every injuryMult is
+  // 1 -- the mechanism is a complete no-op and nothing in the page changes.
+  //
+  // The name column is resolved by position within Sheet3's blocks. The log
+  // line reports both the column it chose and how many players it matched, so
+  // a wrong pairing appears as a count of zero instead of as silence.
+  let injIdx = -1, injNameIdx = 1;
+  if (dataRows.length > 0) {
+    const injHeaders = rows[0] || [];
+    injIdx = injHeaders.findIndex(h => {
+      const u = (h || '').trim().toUpperCase();
+      return (u.includes('OUT') && u.includes('UNTIL')) ||
+             u === 'RETURN' || u === 'RET_DATE' || u === 'INJ_UNTIL';
+    });
+    if (injIdx >= 0) {
+      injNameIdx = injIdx >= 22 ? 22 : (injIdx >= 12 ? 12 : 1);
+      console.log('[Injury] return-date column ' + injIdx +
+        ', names from column ' + injNameIdx);
+    }
+  }
+  const injuryMap = {};
+  const injPadTo = Math.max(21, injIdx + 1);
+
   for (const row of dataRows) {
-    while (row.length < 21) row.push('');
+    while (row.length < injPadTo) row.push('');
+    if (injIdx >= 0 && row[injNameIdx] && row[injIdx]) {
+      const injName = String(row[injNameIdx]).trim();
+      if (injName) injuryMap[injName] = String(row[injIdx]).trim();
+    }
     // Grab today's date from col S (index 18)
     if (row[18] && !todayStr) todayStr = row[18];
     if (row[0] && row[1]) {
@@ -453,7 +496,26 @@ function processData(rows, contractRows, defenseMapInput) {
     if (parts.length === 3) return new Date(+parts[2], +parts[0]-1, +parts[1]);
     return null;
   }
+  // Return dates, more forgiving than parseDate because this column is typed
+  // by hand. Returns null rather than an Invalid Date: an Invalid Date makes
+  // every comparison below false, so a mistyped date would silently mean "not
+  // injured" instead of showing up as a problem.
+  function parseOutDate(s) {
+    if (!s) return null;
+    const d1 = parseDate(s);
+    if (d1 && !isNaN(d1.getTime())) return d1;
+    const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(s).trim());
+    if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3]);
+    const d2 = new Date(String(s).trim());
+    return isNaN(d2.getTime()) ? null : d2;
+  }
   const today = parseDate(todayStr) || new Date();
+  if (Object.keys(injuryMap).length) {
+    const bad = Object.entries(injuryMap).filter(([, v]) => !parseOutDate(v));
+    console.log('[Injury] ' + Object.keys(injuryMap).length + ' return date(s)' +
+      (bad.length ? ', ' + bad.length + ' unparseable: ' +
+        bad.slice(0, 5).map(([k, v]) => k + '="' + v + '"').join(', ') : ''));
+  }
   const ages = [];
   for (const p of roster) {
     const bd = parseDate(p.birthday);
@@ -814,7 +876,22 @@ function processData(rows, contractRows, defenseMapInput) {
       p.availability = null;
       p.availMult = 1;
     }
-    p.tvWithAge = p.tvPreAge * p.ageMult * p.shootingMult * p.availMult;
+    // CURRENT INJURY. Forward-looking -- how much of the season he will still
+    // miss -- which is a different question from availMult's backward-looking
+    // durability record. A player can legitimately pay both: fragile, and hurt
+    // right now. Weeks REMAINING, so the value recovers on its own.
+    p.weeksOut = 0;
+    p.injuryMult = 1;
+    const outDate = parseOutDate(injuryMap[p.player]);
+    if (outDate) {
+      const wk = (outDate - today) / (7 * 24 * 60 * 60 * 1000);
+      if (wk > 0) {
+        p.weeksOut = wk;
+        p.injuryMult = 1 - INJURY_MAX_CUT *
+          Math.min(1, wk / INJURY_FULL_WEEKS);
+      }
+    }
+    p.tvWithAge = p.tvPreAge * p.ageMult * p.shootingMult * p.availMult * p.injuryMult;
   }
   const totalWithAge = roster.reduce((s,p) => s + p.tvWithAge, 0);
   
