@@ -284,6 +284,30 @@ const DRAFT_DECAY = 0.05; // Exponential decay rate for draft position
 const AGE_DECAY = 0.5; // Exponential decay rate for age
 const POT_EXP_DECAY = 0.35; // potential bonus fades with NBA experience (EXP=0 rookie = full, EXP>=1 realized)
 
+// THE ROOKIE RAMP.
+//
+// A rookie's watermark comes from however many games he has played, and
+// softScore raises it to the power of 3.2, so three good games used to outrank
+// a career. Until RAMP_GAMES career games exist, the watermark is a blend of
+// what he has done and what his draft slot says to expect, weighted by how
+// much of the sample is in: every game moves 1/60 from expectation to evidence.
+//
+// BASELINE_TOP is the expected rookie-season watermark for a number-one pick,
+// calibrated against what number-one picks actually produced -- Flagg 14.5,
+// Sarr 14.09, Risacher 8.51. Twelve is the middle of that rather than the best
+// case, so a rookie who delivers a Flagg season finishes ahead of an unplayed
+// pick. It is the dial to turn if unplayed picks sit too high or too low.
+//
+// Decay across the draft reuses DRAFT_DECAY: pick 1 is 12.0, pick 10 is 7.65,
+// pick 30 is 2.82, pick 60 is 0.60. Undrafted is 0.
+//
+// RAMP_MAX_EXP keeps the ramp from becoming a penalty. Without it a fringe
+// veteran with 40 games across five seasons would be scaled by 0.67 against a
+// baseline of 0, which punishes journeymen instead of damping rookies.
+const RAMP_GAMES = 60;
+const RAMP_MAX_EXP = 1;
+const BASELINE_TOP = 12.0;
+
 // NBA 2025-26 salary floor (minimums) and ceiling (max) by experience
 const SAL_CAP = 154647000;
 const MIN_SAL = {0:1272870,1:2048494,2:2296274,3:2378870,4:2461463,5:2667947,6:2874436,7:3080921,8:3287409,9:3303774};
@@ -584,6 +608,12 @@ function processData(rows, contractRows, defenseMapInput) {
         }
       } else { p.rat365adj = p.rat365; }
     }
+
+    // Career games in the season window, for the rookie ramp. Computed here
+    // because `hist` is scoped to this loop; the ramp runs further down, after
+    // the flat bonuses, so that the blend covers those too.
+    p.careerGames = hist.reduce((s, h) => s + h.games, 0);
+    p.rampExp = expMap[p.player];
   }
 
   // Age multiplier: youth upside below the league average, decline from 29,
@@ -694,6 +724,45 @@ function processData(rows, contractRows, defenseMapInput) {
 
   // Real value: 92/8 blend × age multiplier × shooting penalty, then renormalize to pool
   // Soft-capped exponent: compresses elite outliers while preserving mid-tier separation
+  // THE ROOKIE RAMP -- expectation gives way to evidence, one game at a time.
+  //
+  //     w = careerGames / RAMP_GAMES
+  //     watermark = w * actual + (1 - w) * baseline(draftPick)
+  //
+  // At zero games a pick is worth what his slot says. At the 60th game the
+  // baseline is gone and he is judged on his play. Folded in HERE, before
+  // softScore, so a high pick's value behaves like a player's value rather
+  // than as flat cash added after the fact -- which is what the old
+  // potentialBonus was, and why Flagg sat 10th on a watermark of 14.5 while
+  // Maxey produced 21.64 below him.
+  //
+  // Upside past 60 games is carried by ageMult (about 1.58 at twenty), not by
+  // a draft bonus that never faded. Paid once, not twice.
+  //
+  // This runs after the defense, top-20 RAT and creation bonuses on purpose:
+  // those add to the watermark afterwards, and the top-20 list is sorted on the
+  // raw sheet value, so a rookie with five hot games could collect +1.5 that
+  // skipped the blend.
+  //
+  // Both gates matter. RAMP_MAX_EXP keeps a fringe veteran with 40 career games
+  // from being scaled by 0.67 against a baseline of 0. The undefined test
+  // matters because expMap falls back to 0 elsewhere in this file, so a missing
+  // EXP reads as "rookie" -- an established player with an incomplete row would
+  // otherwise be wiped out.
+  for (const p of roster) {
+    p.rampW = 1;
+    p.draftBaseline = 0;
+    if (p.rampExp !== undefined && p.rampExp <= RAMP_MAX_EXP
+        && p.careerGames < RAMP_GAMES) {
+      p.draftBaseline = (p.draftPick >= 1 && p.draftPick <= 60)
+        ? BASELINE_TOP * Math.exp(-DRAFT_DECAY * (p.draftPick - 1))
+        : 0;
+      p.rampW = p.careerGames / RAMP_GAMES;
+      p.watermark = p.rampW * p.watermark + (1 - p.rampW) * p.draftBaseline;
+      p.rat365adj = p.rampW * p.rat365adj + (1 - p.rampW) * p.draftBaseline;
+    }
+  }
+
   function softScore(r) { const s = Math.pow(Math.max(r, 0), EXPONENT); return s / (1.0 + s / KNEE); }
   const totalAdjWM = roster.reduce((s,p) => s + softScore(p.watermark), 0);
   const totalAdjRAT = roster.reduce((s,p) => s + softScore(p.rat365adj), 0);
@@ -723,11 +792,17 @@ function processData(rows, contractRows, defenseMapInput) {
   }
   
   // Compute final real values: base TV + potential bonus
+  // THE DOLLAR POTENTIAL BONUS IS GONE. A high pick is carried by the draft
+  // baseline folded into the watermark above, which goes through softScore like
+  // everyone else's production instead of landing as flat cash on top of it.
+  //
+  // calcPotentialBonus is left defined but uncalled, along with POTENTIAL_MAX,
+  // MIN_ROOKIE_AGE, MAX_POTENTIAL_AGE, AGE_DECAY and POT_EXP_DECAY. Deleting
+  // them is a tidy-up with no effect on behaviour, kept separate so that this
+  // patch can be reverted cleanly.
   for (const p of roster) {
-    const baseTV = Math.round((p.tvWithAge / totalWithAge) * totalSalaryPool);
-    const potExp = expMap[p.player] !== undefined ? expMap[p.player] : 0;
-    p.potentialBonus = Math.round(calcPotentialBonus(p.age, p.draftPick) * Math.exp(-POT_EXP_DECAY * potExp));
-    p.uncappedTV = baseTV + p.potentialBonus;
+    p.potentialBonus = 0;
+    p.uncappedTV = Math.round((p.tvWithAge / totalWithAge) * totalSalaryPool);
   }
   // Renormalize so total TV = salary pool (potential bonuses inflate the total)
   const rawTotal = roster.reduce((s,p) => s + p.uncappedTV, 0);
