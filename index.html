@@ -208,6 +208,156 @@ const RATINGS_URL = PROXY_BASE + '/api/rm-tv';
 const CONTRACT_URL = PROXY_BASE + '/api/rm-contracts';
 const DEFENSE_URL = PROXY_BASE + '/api/defense-cache'; // SC/MPG cached by defense page
 
+// ===== CURRENT-INJURY TRACKER =========================================
+//
+// https://aderoa.github.io/Injuries/injuries.json -- a change log of
+// {player, status, injury, date, eta, prevStatus}. `date` is when the record
+// was written and `eta` is a readable duration, so REMAINING time is
+// computable and the cut decays by itself.
+//
+// Same origin for the GitHub Pages copy of this page. On hoopsmatic.com it is
+// cross-origin; if that is ever refused, move this to a worker route beside
+// /api/defense-cache and nothing else here changes.
+const INJURY_URL = 'https://aderoa.github.io/Injuries/injuries.json';
+const INJURY_ETA_MAX_AGE_WEEKS = 56;  // an older eta cannot drive a new injury
+const INJURY_UNMAPPED_WEEKS = 2;      // a real injury the map does not know
+const INJURY_MIN_OUT_WEEKS = 0.3;     // still Out past his eta is not free
+let INJURY_FEED = null;               // player -> sorted record list
+let INJURY_REPORT = null;             // for the console
+
+// Not an injury at all. A two-way assignment or a rest night must not read as
+// one -- this is the same confusion that made availMult punish G League
+// players, and it is worth being explicit about twice.
+const INJ_NOT_INJURY = /g league|two.?way|not with team|personal|rest|coach|suspension/i;
+const INJ_OUT_STATUS = /^(out|doubtful|left game)$/i;
+
+// ORDER MATTERS: "Right Knee ACL Repair" must read as ACL, not as repair.
+const INJ_SEVERITY = [
+  [/\bacl\b|achilles|rupture/i, 40],
+  [/\btear\b|\btorn\b/i, 28],
+  [/fracture|surgery|repair/i, 12],
+  [/stress reaction|bursitis|shin splints|tendinopathy/i, 5],
+  [/concussion/i, 1.5],
+  [/strain|sprain/i, 2],
+  [/contusion|bone bruise|soreness|tightness|illness|management/i, 0.4]
+];
+
+// "4-6 weeks" -> 5, "9-12 months" -> 45.6, "Day-to-Day" -> 0.3.
+function injEtaWeeks(s) {
+  if (!s) return null;
+  const t = String(s).toLowerCase().trim();
+  if (/day\s*-?\s*to\s*-?\s*day/.test(t)) return 0.3;
+  if (/season/.test(t)) return 40;
+  const m = /(\d+(?:\.\d+)?)\s*(?:-\s*(\d+(?:\.\d+)?))?\s*(day|week|month|year)/.exec(t);
+  if (!m) return null;
+  const lo = parseFloat(m[1]);
+  const mid = (lo + (m[2] ? parseFloat(m[2]) : lo)) / 2;
+  return m[3] === 'day' ? mid / 7 : m[3] === 'week' ? mid
+       : m[3] === 'month' ? mid * 4.345 : mid * 52;
+}
+
+// Returns 0 for things that are not injuries, null for an injury the map does
+// not recognise -- null is reported rather than silently treated as healthy.
+function injTextWeeks(s) {
+  if (!s) return null;
+  if (INJ_NOT_INJURY.test(s)) return 0;
+  for (const pair of INJ_SEVERITY) if (pair[0].test(s)) return pair[1];
+  return null;
+}
+
+function injNorm(n) {
+  return String(n || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[.'`\u2019]/g, '')
+    .replace(/-/g, ' ')
+    .replace(/\b(jr|sr|ii|iii|iv)\b/g, '')
+    .replace(/\s+/g, ' ').trim();
+}
+
+// THE FILE IS NOT SORTED BY DATE. Butler's January records sit after his July
+// ones, so sorting is mandatory, and the array index is the only tiebreak that
+// says which of several same-day records came last.
+function injBuildFeed(rows) {
+  const byPlayer = {}, unmapped = {};
+  rows.forEach(function (r, i) {
+    if (!r || !r.player) return;
+    const k = injNorm(r.player);
+    if (!byPlayer[k]) byPlayer[k] = [];
+    byPlayer[k].push({ player: r.player, status: r.status || '', injury: r.injury || '',
+                       date: r.date || '', eta: r.eta || null, _i: i });
+  });
+  Object.keys(byPlayer).forEach(function (k) {
+    byPlayer[k].sort(function (a, b) {
+      return a.date < b.date ? -1 : a.date > b.date ? 1 : a._i - b._i;
+    });
+    const last = byPlayer[k][byPlayer[k].length - 1];
+    if (INJ_OUT_STATUS.test(last.status) && last.injury &&
+        injTextWeeks(last.injury) === null) unmapped[last.injury] = 1;
+  });
+  INJURY_FEED = byPlayer;
+  const texts = Object.keys(unmapped);
+  INJURY_REPORT = { players: Object.keys(byPlayer).length, records: rows.length,
+                    unmapped: texts };
+  console.log('[Injury] tracker: ' + rows.length + ' records, ' +
+    Object.keys(byPlayer).length + ' players' +
+    (texts.length ? ' | UNMAPPED injury text: ' + texts.join(' / ') : ''));
+}
+
+async function loadInjuryFeed() {
+  try {
+    const res = await fetch(INJURY_URL);
+    if (!res.ok) { console.warn('[Injury] HTTP ' + res.status); return; }
+    const rows = await res.json();
+    if (Array.isArray(rows)) injBuildFeed(rows);
+    else console.warn('[Injury] unexpected shape: ' + typeof rows);
+  } catch (e) {
+    console.warn('[Injury] fetch failed: ' + e.message + ' -- no injury cuts applied');
+  }
+}
+
+// His current state, and how many weeks of it are still ahead of him.
+function injStateFor(name, today) {
+  if (!INJURY_FEED) return null;
+  const a = INJURY_FEED[injNorm(name)];
+  if (!a || !a.length) return null;
+  const last = a[a.length - 1];
+  const out = { status: last.status, injury: last.injury, eta: null,
+                basis: null, weeks: 0 };
+  if (!INJ_OUT_STATUS.test(last.status)) return out;
+
+  // The latest record may carry no injury text; carry the most recent one.
+  let text = last.injury;
+  if (!text) for (let i = a.length - 1; i >= 0; i--) { if (a[i].injury) { text = a[i].injury; break; } }
+  out.injury = text;
+  if (INJ_NOT_INJURY.test(text || '')) { out.basis = 'not an injury'; return out; }
+
+  // ...and often no eta either, so reach back for the most recent one and
+  // measure elapsed time from ITS date: "12 months" was said on 19 January.
+  let etaRec = null;
+  for (let i = a.length - 1; i >= 0; i--) {
+    if (a[i].eta && injEtaWeeks(a[i].eta) !== null) {
+      const ageWk = (today - new Date(a[i].date)) / (7 * 24 * 60 * 60 * 1000);
+      if (ageWk <= INJURY_ETA_MAX_AGE_WEEKS) etaRec = a[i];
+      break;
+    }
+  }
+  let total, from;
+  if (etaRec) {
+    total = injEtaWeeks(etaRec.eta); from = etaRec.date;
+    out.eta = etaRec.eta; out.basis = 'eta "' + etaRec.eta + '" from ' + etaRec.date;
+  } else {
+    total = injTextWeeks(text); from = last.date;
+    if (total === null) { total = INJURY_UNMAPPED_WEEKS; out.basis = 'unmapped "' + text + '"'; }
+    else out.basis = 'severity "' + text + '"';
+  }
+  if (total === 0) return out;
+  const elapsed = Math.max(0, (today - new Date(from)) / (7 * 24 * 60 * 60 * 1000));
+  out.weeks = Math.max(INJURY_MIN_OUT_WEEKS, total - elapsed);
+  return out;
+}
+// ======================================================================
+
 let DEFENSE_STATUS = null;
 function renderDefenseBadge() {
   const el = document.getElementById('defBadge');
@@ -882,14 +1032,27 @@ function processData(rows, contractRows, defenseMapInput) {
     // right now. Weeks REMAINING, so the value recovers on its own.
     p.weeksOut = 0;
     p.injuryMult = 1;
+    p.injurySource = null;
+    // THE SHEET COLUMN IS AN OVERRIDE and wins whenever it is set -- for a
+    // case already in progress, or one where you know better than the map.
+    // Otherwise the tracker decides, and decays on its own.
     const outDate = parseOutDate(injuryMap[p.player]);
     if (outDate) {
       const wk = (outDate - today) / (7 * 24 * 60 * 60 * 1000);
-      if (wk > 0) {
-        p.weeksOut = wk;
-        p.injuryMult = 1 - INJURY_MAX_CUT *
-          Math.min(1, wk / INJURY_FULL_WEEKS);
+      if (wk > 0) { p.weeksOut = wk; p.injurySource = 'sheet'; }
+    } else {
+      const inj = injStateFor(p.player, today);
+      if (inj) {
+        p.injuryStatus = inj.status;
+        p.injuryText = inj.injury;
+        p.injuryEta = inj.eta;
+        p.injuryBasis = inj.basis;
+        if (inj.weeks > 0) { p.weeksOut = inj.weeks; p.injurySource = 'tracker'; }
       }
+    }
+    if (p.weeksOut > 0) {
+      p.injuryMult = 1 - INJURY_MAX_CUT *
+        Math.min(1, p.weeksOut / INJURY_FULL_WEEKS);
     }
     p.tvWithAge = p.tvPreAge * p.ageMult * p.shootingMult * p.availMult * p.injuryMult;
   }
@@ -1194,7 +1357,8 @@ async function refreshData() {
     const [res, cRes, dRes] = await Promise.all([
       fetch(RATINGS_URL),
       fetch(CONTRACT_URL),
-      fetch(DEFENSE_URL).catch(e => { console.warn('[Defense] Refresh fetch failed:', e.message); return null; })
+      fetch(DEFENSE_URL).catch(e => { console.warn('[Defense] Refresh fetch failed:', e.message); return null; }),
+      loadInjuryFeed()
     ]);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const ratingsRows = parseCSV(await res.text());
@@ -1325,7 +1489,8 @@ async function init() {
     const [res, cRes, dRes] = await Promise.all([
       fetch(RATINGS_URL),
       fetch(CONTRACT_URL),
-      fetch(DEFENSE_URL).catch(e => { console.warn('[Defense] Fetch failed:', e.message); return null; })
+      fetch(DEFENSE_URL).catch(e => { console.warn('[Defense] Fetch failed:', e.message); return null; }),
+      loadInjuryFeed()
     ]);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const ratingsRows = parseCSV(await res.text());
