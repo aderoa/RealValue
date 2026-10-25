@@ -409,6 +409,10 @@ const INJ_PROTECT_RANGE = 5;     // ...over this many years, so full protection 
 // the best evidence there is. ~61 of 82 games.
 const INJ_PROTECT_MAX_PCT = 0.75;
 const STALE_MAX_DISCOUNT = 0.25; // a past-prime player who MISSED the season loses up to this much watermark
+// ...but only once enough of the season has been played for zero appearances
+// to mean he missed it rather than that it has barely started. Three games in,
+// every injured player in the league has no rows in the current season.
+const STALE_MIN_PROGRESS = 0.5;  // ~41 games
 // AGE DECLINE -- starts at the end of prime, not at 35.
 //
 // The youth bonus is scaled by (avgAge - age), so it reaches zero at the
@@ -737,7 +741,21 @@ function processData(rows, contractRows, defenseMapInput) {
   const CUR_YEAR = SEASON_YEARS[0] || '';
   const PREV_YEAR = SEASON_YEARS[1] || '';
   if (!SEASON_YEARS.length) console.warn('[RV] no season blocks found in the ratings sheet');
-  console.log('[RV] season window:', SEASON_YEARS.map(y => y + '=' + SEASON_WEIGHT[y].toFixed(4)).join(' '));
+  // HOW FAR INTO THE SEASON ARE WE? Read off the data, not the calendar.
+  //
+  // The busiest player in the league is a sound proxy, and it costs one pass
+  // over rows already in memory. The stale discount below needs it: with the
+  // season three games old, a player with no current-season rows has not
+  // missed the season, he just has not played yet.
+  //
+  // Derived rather than dated because a hardcoded "is it November" goes stale
+  // in silence, which has cost this project three afternoons already.
+  const CUR_MAX_GAMES = historical.reduce((m, h) =>
+    h.year === CUR_YEAR ? Math.max(m, h.games) : m, 0);
+  const SEASON_PROGRESS = Math.min(1, CUR_MAX_GAMES / (EXPECTED[CUR_YEAR] || 82));
+  console.log('[RV] season window:', SEASON_YEARS.map(y => y + '=' + SEASON_WEIGHT[y].toFixed(4)).join(' ') +
+    ' | progress ' + (SEASON_PROGRESS * 100).toFixed(0) + '% (busiest player ' + CUR_MAX_GAMES + ' games)' +
+    (SEASON_PROGRESS < STALE_MIN_PROGRESS ? ' -- stale discount SUSPENDED' : ''));
 
   for (const p of roster) {
     const hist = playerHist[p.player.toLowerCase()] || [];
@@ -786,7 +804,11 @@ function processData(rows, contractRows, defenseMapInput) {
     // Missed the current season entirely (no CUR_YEAR games -> den == priorDen): the watermark is
     // stale prior form. Age-gate a discount so a past-prime vet (Lillard, 36) drops toward reality
     // while a young returner (Tatum 28, Haliburton 26) is left alone.
-    if (priorDen > 0 && den <= priorDen + 1e-9) {
+    // SEASON_PROGRESS gates this: see above. Without it, three games into a
+    // season every injured player reads as having missed the whole of it, and
+    // is charged for it twice -- once here and once by the injury factor.
+    if (priorDen > 0 && den <= priorDen + 1e-9 &&
+        SEASON_PROGRESS >= STALE_MIN_PROGRESS) {
       const staleFactor = (p.age !== null) ? Math.max(0, Math.min(1, (INJ_PROTECT_ZERO_AGE - p.age) / INJ_PROTECT_RANGE)) : 1.0;
       p.watermark *= (1 - STALE_MAX_DISCOUNT * (1 - staleFactor));
     }
