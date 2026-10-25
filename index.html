@@ -415,6 +415,21 @@ function processData(rows, contractRows, defenseMapInput) {
   const maxDevYoung = avgAge - Math.min(...ages);
 
   // GP correction helper — boosts players who missed time, never penalizes healthy players
+  // THE GAMES CORRECTION IS OFF FOR THE WATERMARK.
+  //
+  // TOTAL RAT / G is already a per-game rate, so correcting it for games
+  // played is a second normalisation of a quantity that had one. It claimed a
+  // player who appeared 52 times would have been better per game over 82, and
+  // it stacked with the injury protection below, which does this job properly
+  // at the season level: measured lifts reached 4.09x, above the 2.5 cap.
+  //
+  // Because the correction fades above GP_AGE_THRESHOLD, it also went to young
+  // players and not to old ones -- LeBron and Curry played, received almost
+  // none of it, and were overtaken by short seasons multiplied by 2.5.
+  //
+  // Flip to true to put it back; the arithmetic below is unchanged.
+  const WM_GAMES_CORRECTION = false;
+
   function gpCorr(rawPerGame, expected, actual, playerAge) {
     const pct = actual / expected;
     if (pct < GAMES_MIN_PCT) return rawPerGame;
@@ -467,9 +482,11 @@ function processData(rows, contractRows, defenseMapInput) {
       const w = SEASON_WEIGHT[h.year] || 0;
       if (w <= 0 || h.games <= 0) continue;
       let perGame = h.totalRat / h.games;
-      // Per-season games correction with age fade
-      const exp = EXPECTED[h.year] || 82;
-      perGame = gpCorr(perGame, exp, h.games, p.age);
+      // Already a rate. See WM_GAMES_CORRECTION above.
+      if (WM_GAMES_CORRECTION) {
+        const exp = EXPECTED[h.year] || 82;
+        perGame = gpCorr(perGame, exp, h.games, p.age);
+      }
       num += perGame * w * h.games;
       den += w * h.games;
       if (h.year !== CUR_YEAR) {
